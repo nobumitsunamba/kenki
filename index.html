@@ -302,19 +302,21 @@
     const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.85, metalness: 0.1 });
     // 油圧シリンダーのロッド（クロムメッキ風の光る鋼）
     const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.2, metalness: 0.9 });
-    // シリンダーのバレル（やや暗い鋼）
-    const matBarrel = new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 0.45, metalness: 0.7 });
+    // シリンダーのバレル（ボディと同じブルーグリーン）
+    const matBarrel = new THREE.MeshStandardMaterial({ color: COLOR_BODY, roughness: 0.5, metalness: 0.35 });
     // 運転席フレーム（濃いグレー）とガラス
     const matCab   = new THREE.MeshStandardMaterial({ color: COLOR_CAB, roughness: 0.5, metalness: 0.3 });
     const matGlass = new THREE.MeshStandardMaterial({ color: 0x1d2a33, roughness: 0.1, metalness: 0.5, transparent: true, opacity: 0.65 });
 
-    // テキストを描いたテクスチャ（看板用）
-    function makeTextTexture(text, bg, fg) {
+    // テキストを描いたテクスチャ（看板用）。mirror=true で左右反転して描く
+    // （背面向きに配置しても正しく読めるようにするため）。
+    function makeTextTexture(text, bg, fg, mirror) {
       const cv = document.createElement('canvas');
       cv.width = 512; cv.height = 160;
       const ctx = cv.getContext('2d');
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, cv.width, cv.height);
+      if (mirror) { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
       ctx.fillStyle = fg;
       ctx.font = 'bold 110px Arial, sans-serif';
       ctx.textAlign = 'center';
@@ -453,10 +455,9 @@
     counter.position.set(0, 1.6, -3.4);
     swing.add(counter);
 
-    // お尻に KOBELCO の銘板（白地に文字）
-    const kobeTex = makeTextTexture('KOBELCO', '#ffffff', '#0a3d44');
-    kobeTex.center.set(0.5, 0.5);
-    kobeTex.repeat.x = -1; // 背面向きで鏡像にならないよう反転
+    // お尻に KOBELCO の銘板（地=ボディカラー / 文字=白）
+    // 背面(-Z)向きに置くのでテクスチャは左右反転して描く。
+    const kobeTex = makeTextTexture('KOBELCO', '#1B7E86', '#ffffff', true);
     const nameplate = new THREE.Mesh(
       new THREE.PlaneGeometry(3.2, 1.0),
       new THREE.MeshStandardMaterial({ map: kobeTex, roughness: 0.6 })
@@ -500,7 +501,7 @@
     boom.add(boomBox);
 
     // ブームのピボット軸（シリンダー, 横向き）
-    const boomPin = mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 16), matDark);
+    const boomPin = mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 16), matBody);
     boomPin.rotation.z = Math.PI / 2;
     boom.add(boomPin);
 
@@ -516,7 +517,7 @@
     armBox.position.set(0, 0, ARM_LEN / 2);
     arm.add(armBox);
 
-    const armPin = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 16), matDark);
+    const armPin = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 16), matBody);
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
@@ -527,7 +528,7 @@
     bucket.position.set(0, 0, ARM_LEN); // アーム先端
     arm.add(bucket);
 
-    const bucketPin = mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.8, 16), matDark);
+    const bucketPin = mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.8, 16), matBody);
     bucketPin.rotation.z = Math.PI / 2;
     bucket.add(bucketPin);
 
@@ -656,8 +657,9 @@
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
       // アーム: ブームに対する折れ角。
       arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.1,    max: 2.4,   speed: 0.9 },
-      // バケット: 開閉（掘削/排土）。
-      bucket: { obj: bucket, axis: 'x', value: 0.4,    min: -0.4,   max: 2.6,   speed: 1.1 },
+      // バケット: 開閉（掘削/排土）。value大=閉じる, 小=開く。
+      // もっと開けるよう下限を拡大し、閉じすぎてアームに食い込まないよう上限を抑制。
+      bucket: { obj: bucket, axis: 'x', value: 0.2,    min: -1.3,   max: 1.4,   speed: 1.2 },
     };
 
     function applyJoints() {
