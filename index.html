@@ -505,28 +505,61 @@
 
     // ブームの取り付け基部（前方右寄り）— ここがブームのピボット
     const BOOM_PIVOT = new THREE.Vector3(0.9, 1.4, 2.4);
+    const BOOM_LEN = 6.6;
+    const ARM_LEN = 4.8;
+
+    // 側面プロファイル(z,y の点列)を幅(width)方向へ押し出して梁を作る。
+    // 角は軽くベベルして量産機らしい丸みを出す。
+    function beamGeo(points, width) {
+      const sh = new THREE.Shape();
+      sh.moveTo(points[0][0], points[0][1]);
+      for (let i = 1; i < points.length; i++) sh.lineTo(points[i][0], points[i][1]);
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, {
+        depth: width, bevelEnabled: true,
+        bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 1,
+      });
+      g.rotateY(-Math.PI / 2);     // 厚みをX方向へ
+      g.translate(width / 2, 0, 0);// X中心に寄せる
+      g.computeVertexNormals();
+      return g;
+    }
+    // 上端・下端の2本のポリラインから閉プロファイルを作る
+    function beamProfile(samples) {
+      const top = [], bot = [];
+      for (const [z, cy, half] of samples) { top.push([z, cy + half]); bot.push([z, cy - half]); }
+      return top.concat(bot.reverse());
+    }
 
     // ----- ブーム（X軸ピッチ）-----
     const boom = new THREE.Group();
     boom.position.copy(BOOM_PIVOT);
     swing.add(boom);
 
-    // ブーム本体: 長さ約6.5。付け根が原点なので前方(+方向)へオフセット。
-    // ブームは「く」の字気味に上に伸びる形を1本のボックスで近似。
-    const BOOM_LEN = 6.6;
-    const boomBox = mesh(new THREE.BoxGeometry(0.9, 0.9, BOOM_LEN), matBody);
-    // ローカル: ピボットから前方へ伸ばす（中心を半分だけ前に）
-    boomBox.position.set(0, 0, BOOM_LEN / 2);
-    boom.add(boomBox);
+    // ブーム本体: 「へ字」に反り、根元→先で薄くなるテーパー梁。
+    // 反り cy = 中央が上, 厚み half = 根元厚め。両端は z 軸上(cy=0)でピボット/先端に一致。
+    const BOOM_CURVE = 1.0;
+    const boomCenterY = (z) => BOOM_CURVE * Math.sin(Math.PI * z / BOOM_LEN);
+    const boomHalf    = (z) => 0.5 - 0.16 * (z / BOOM_LEN);
+    {
+      const N = 12, samples = [];
+      for (let i = 0; i <= N; i++) {
+        const z = (i / N) * BOOM_LEN;
+        samples.push([z, boomCenterY(z), boomHalf(z)]);
+      }
+      const boomMeshObj = mesh(beamGeo(beamProfile(samples), 0.8), matBody);
+      boom.add(boomMeshObj);
+    }
 
     // ブームのピボット軸（シリンダー, 横向き）
     const boomPin = mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 16), matBody);
     boomPin.rotation.z = Math.PI / 2;
     boom.add(boomPin);
 
-    // ブーム上面のアームシリンダー取付ブラケット（シリンダーを上に持ち上げる）
+    // ブーム上面のアームシリンダー取付ブラケット（反った上面に乗せる）
+    const boomBktZ = 4.3;
     const boomBkt = mesh(new THREE.BoxGeometry(0.5, 0.55, 0.8), matBody);
-    boomBkt.position.set(0, 0.6, 4.3);
+    boomBkt.position.set(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.05, boomBktZ);
     boom.add(boomBkt);
 
 
@@ -536,10 +569,16 @@
     arm.position.set(0, 0, BOOM_LEN); // ブーム先端
     boom.add(arm);
 
-    const ARM_LEN = 4.8;
-    const armBox = mesh(new THREE.BoxGeometry(0.7, 0.7, ARM_LEN), matBody);
-    armBox.position.set(0, 0, ARM_LEN / 2);
-    arm.add(armBox);
+    const armHalf = (z) => 0.42 - 0.16 * (z / ARM_LEN);
+    {
+      const N = 8, samples = [];
+      for (let i = 0; i <= N; i++) {
+        const z = (i / N) * ARM_LEN;
+        samples.push([z, 0, armHalf(z)]);
+      }
+      const armMeshObj = mesh(beamGeo(beamProfile(samples), 0.62), matBody);
+      arm.add(armMeshObj);
+    }
 
     const armPin = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 16), matBody);
     armPin.rotation.z = Math.PI / 2;
@@ -777,15 +816,15 @@
       }
     }
 
-    // ブームシリンダー: 旋回体前部下 → ブーム下面
+    // ブームシリンダー: 旋回体前部下 → ブーム下面(反った下端に合わせる)
     addHydraulic(
       swing, new THREE.Vector3(0.9, 0.0, 1.4),
-      boom,  new THREE.Vector3(0, -0.55, 3.2),
+      boom,  new THREE.Vector3(0, boomCenterY(2.6) - boomHalf(2.6) - 0.05, 2.6),
       { barrelLen: 2.6, barrelR: 0.22, rodR: 0.13 }
     );
     // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール上端
     addHydraulic(
-      boom, new THREE.Vector3(0, 0.95, 4.3),
+      boom, new THREE.Vector3(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.4, boomBktZ),
       arm,  new THREE.Vector3(0, 0.95, 0.1),
       { barrelLen: 2.2, barrelR: 0.19, rodR: 0.11 }
     );
