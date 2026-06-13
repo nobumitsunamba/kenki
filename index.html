@@ -504,6 +504,11 @@
     boomPin.rotation.z = Math.PI / 2;
     boom.add(boomPin);
 
+    // ブーム上面のアームシリンダー取付ブラケット（シリンダーを上に持ち上げる）
+    const boomBkt = mesh(new THREE.BoxGeometry(0.5, 0.55, 0.8), matBody);
+    boomBkt.position.set(0, 0.6, 4.3);
+    boom.add(boomBkt);
+
 
     // ----- アーム（X軸ピッチ）-----
     // ブーム先端がアームのピボット。
@@ -519,6 +524,16 @@
     const armPin = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 16), matBody);
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
+
+    // アーム基部のヒール（隆起）— アームシリンダーの取付点を持ち上げる
+    const armHeel = mesh(new THREE.BoxGeometry(0.55, 1.0, 0.8), matBody);
+    armHeel.position.set(0, 0.45, 0.1);
+    arm.add(armHeel);
+
+    // アーム上面のバケットシリンダー取付ブラケット
+    const armBkt = mesh(new THREE.BoxGeometry(0.5, 0.55, 0.8), matBody);
+    armBkt.position.set(0, 0.5, 1.3);
+    arm.add(armBkt);
 
     // アーム先端の継手（ナックル）— ここがバケットのピボット
     const armTip = mesh(new THREE.BoxGeometry(0.85, 0.85, 0.7), matBody);
@@ -548,9 +563,24 @@
     bottom.rotation.x = 0.2;
     bucket.add(bottom);
 
-    for (const sx of [-0.75, 0.75]) {
-      const side = mesh(new THREE.BoxGeometry(0.16, 1.15, 1.2), bucketMat);
-      side.position.set(sx, -0.72, -0.28);
+    // 側板: くぼみ側面を三角形の板で塞ぐ（背板〜底板〜開口の対角線）
+    // 形状は側面視の (z, y) で定義。A=上端(ピボット側) B=背下 C=刃先側。
+    function makeBucketSideGeo() {
+      const sh = new THREE.Shape();
+      sh.moveTo(0.2, 0.0);    // A: 背板上端（ピボット付近）
+      sh.lineTo(0.2, -1.2);   // B: 背板下端
+      sh.lineTo(-1.05, -1.15);// C: 刃先側下端
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2); // 厚みをX方向へ
+      g.translate(0.08, 0, 0); // 厚み中心を合わせる
+      g.computeVertexNormals();
+      return g;
+    }
+    const bucketSideGeo = makeBucketSideGeo();
+    for (const sx of [-0.67, 0.67]) {
+      const side = mesh(bucketSideGeo, bucketMat);
+      side.position.x = sx;
       bucket.add(side);
     }
     // 刃先（ツース風）— 機体側(-Z)の開口の縁
@@ -639,17 +669,17 @@
       boom,  new THREE.Vector3(0, -0.55, 3.2),
       { barrelLen: 2.6, barrelR: 0.22, rodR: 0.13 }
     );
-    // アームシリンダー: ブーム上面 → アーム上面付け根
+    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール上端
     addHydraulic(
-      boom, new THREE.Vector3(0, 0.75, 3.0),
-      arm,  new THREE.Vector3(0, 0.55, 1.1),
+      boom, new THREE.Vector3(0, 0.95, 4.3),
+      arm,  new THREE.Vector3(0, 0.95, 0.1),
       { barrelLen: 2.2, barrelR: 0.19, rodR: 0.11 }
     );
-    // バケットシリンダー: アーム上面先端 → バケット背面上部(ピボット直上)
+    // バケットシリンダー: アーム上面ブラケット → バケット背面上部(ピボット直上)
     addHydraulic(
-      arm,    new THREE.Vector3(0, 0.6, 3.4),
-      bucket, new THREE.Vector3(0, 0.2, 0.3),
-      { barrelLen: 1.5, barrelR: 0.15, rodR: 0.09 }
+      arm,    new THREE.Vector3(0, 0.85, 1.3),
+      bucket, new THREE.Vector3(0, 0.35, 0.3),
+      { barrelLen: 1.6, barrelR: 0.15, rodR: 0.09 }
     );
 
     // =========================================================
