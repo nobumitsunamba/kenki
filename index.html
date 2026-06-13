@@ -72,10 +72,31 @@
 
     #title {
       position: fixed; top: 0; left: 0; right: 0;
-      padding: max(10px, env(safe-area-inset-top)) 14px 8px;
+      padding: max(10px, env(safe-area-inset-top)) 14px 4px;
       color: #fff; font-size: 13px;
       text-shadow: 0 1px 3px rgba(0,0,0,0.5);
       pointer-events: none; z-index: 10;
+    }
+    #hud {
+      position: fixed;
+      top: calc(max(10px, env(safe-area-inset-top)) + 24px);
+      left: 14px;
+      pointer-events: none; z-index: 10;
+    }
+    #loadLabel {
+      color: #fff; font-size: 11px; margin-bottom: 3px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
+    #loadBar {
+      width: 140px; height: 12px;
+      border: 1px solid rgba(255,255,255,0.6);
+      border-radius: 6px; overflow: hidden;
+      background: rgba(0,0,0,0.25);
+    }
+    #loadFill {
+      width: 0%; height: 100%;
+      background: linear-gradient(90deg, #c39a5e, #8a6233);
+      transition: width 0.08s linear;
     }
   </style>
 
@@ -92,6 +113,11 @@
   <div id="app"></div>
 
   <div id="title">油圧ショベル操作シミュレーター（JISパターン）</div>
+
+  <div id="hud">
+    <div id="loadLabel">バケット土量</div>
+    <div id="loadBar"><div id="loadFill"></div></div>
+  </div>
 
   <div id="controls">
     <div class="stick" id="stickLeft">
@@ -134,7 +160,7 @@
     // ===== シーン =====
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87b9e0);
-    scene.fog = new THREE.Fog(0x87b9e0, 60, 160);
+    scene.fog = new THREE.Fog(0x87b9e0, 40, 115);
 
     // ===== カメラ（斜め見下ろし）=====
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
@@ -198,20 +224,76 @@
       return tex;
     }
     const groundTex = makeGroundTexture();
-    const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(200, 1, 200),
+    // 遠景の地面（掘削エリアの外周〜地平線を埋める。掘れる面より深く沈めて
+    // 掘った穴の底からは見えないようにする）。
+    const farGround = new THREE.Mesh(
+      new THREE.BoxGeometry(600, 1, 600),
       new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1.0 })
     );
-    ground.position.y = -0.5;
-    ground.receiveShadow = true;
-    scene.add(ground);
+    farGround.position.y = -8.5; // 上面が y=-8
+    farGround.receiveShadow = true;
+    scene.add(farGround);
 
-    // 控えめなグリッド（位置把握用, フェードさせる）
-    const grid = new THREE.GridHelper(120, 40, 0x6f7a4d, 0x7a875c);
-    grid.material.transparent = true;
-    grid.material.opacity = 0.25;
-    grid.position.y = 0.02;
-    scene.add(grid);
+    // ===== 掘削できる地形（ハイトフィールド）=====
+    // PlaneGeometry を XZ 平面に倒し、頂点の「高さ」を動的に変形させる。
+    // 倒した後はローカルZが world+Y（高さ）方向、ローカル(x,y)→world(x,-z)。
+    const FIELD_SIZE = 64;   // 一辺の長さ
+    const FIELD_SEG  = 64;   // 分割数（頂点間隔=1.0）
+    const FIELD_HW   = FIELD_SIZE / 2;
+    const CELL       = FIELD_SIZE / FIELD_SEG;
+    const DIG_MIN    = -3.2; // 掘れる深さ下限
+    const PILE_MAX   = 3.0;  // 盛れる高さ上限
+
+    const fieldGeo = new THREE.PlaneGeometry(FIELD_SIZE, FIELD_SIZE, FIELD_SEG, FIELD_SEG);
+    fieldGeo.rotateX(-Math.PI / 2); // XZ平面へ。以後 position.y が高さになる。
+    const vertCount = (FIELD_SEG + 1) * (FIELD_SEG + 1);
+    // 頂点カラー（草=緑／掘削面・盛土=土色）
+    const colAttr = new THREE.Float32BufferAttribute(new Float32Array(vertCount * 3), 3);
+    fieldGeo.setAttribute('color', colAttr);
+
+    // sRGB色をリニアに変換して保持（vertexColorsはリニア前提）
+    const C_GRASS = new THREE.Color(0x8f9a63).convertSRGBToLinear();
+    const C_DIRT  = new THREE.Color(0x6f5337).convertSRGBToLinear(); // 掘削面
+    const C_DEEP  = new THREE.Color(0x4d3a26).convertSRGBToLinear(); // 深部
+    const C_PILE  = new THREE.Color(0x866444).convertSRGBToLinear(); // 盛土（ほぐれた土）
+
+    function setVertColor(idx, h) {
+      let c;
+      if (h > 0.04) {
+        c = C_PILE;
+      } else if (h < -0.04) {
+        const t = Math.min(1, -h / 3);
+        c = C_DIRT.clone().lerp(C_DEEP, t);
+      } else {
+        c = C_GRASS;
+      }
+      colAttr.setXYZ(idx, c.r, c.g, c.b);
+    }
+    for (let i = 0; i < vertCount; i++) setVertColor(i, 0);
+    colAttr.needsUpdate = true;
+
+    const field = new THREE.Mesh(
+      fieldGeo,
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0 })
+    );
+    field.receiveShadow = true;
+    field.castShadow = true;
+    scene.add(field);
+
+    const fieldPos = fieldGeo.attributes.position;
+    // 高さの読み書き（world座標→頂点）。倒した後 position.y がそのまま高さ。
+    function fieldIndex(wx, wz) {
+      // PlaneGeometry頂点配列順: iy(行,上→下) × ix(列,左→右)
+      // ローカル: x=wx, y=-wz。 x: -HW..HW, 元のy(=-wz): HW..-HW
+      const ix = Math.round((wx + FIELD_HW) / CELL);
+      const iy = Math.round((FIELD_HW - (-wz)) / CELL); // = (FIELD_HW + wz)/CELL
+      if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) return -1;
+      return iy * (FIELD_SEG + 1) + ix;
+    }
+    function heightAtWorld(wx, wz) {
+      const i = fieldIndex(wx, wz);
+      return i < 0 ? 0 : fieldPos.getY(i);
+    }
 
     // ===== マテリアル =====
     const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.55, metalness: 0.25 });
@@ -438,6 +520,18 @@
       bucket.add(tooth);
     }
 
+    // 掘削判定用の刃先アンカー（ツースの先端あたり）
+    const bucketTip = new THREE.Object3D();
+    bucketTip.position.set(0, -1.0, 1.75);
+    bucket.add(bucketTip);
+
+    // バケット内の土（積載量に応じて表示・スケール）
+    const matSoil = new THREE.MeshStandardMaterial({ color: 0x6f5337, roughness: 1.0 });
+    const soilInBucket = mesh(new THREE.BoxGeometry(1.4, 0.9, 1.15), matSoil);
+    soilInBucket.position.set(0, -0.55, 0.8);
+    soilInBucket.visible = false;
+    bucket.add(soilInBucket);
+
     // =========================================================
     //  油圧シリンダー（関節連動でロッドが伸縮）
     //  2点(アンカー)の間を、固定長のバレル＋スライドするロッドで繋ぐ。
@@ -627,6 +721,122 @@
       applyJoints();
     }
 
+    // =========================================================
+    //  掘削・排土（地形変形＋バケット積載）
+    // =========================================================
+    const LOAD_CAP   = 1.0;     // バケット容量（正規化）
+    const DIG_RADIUS = 1.5;     // 掘削ブラシ半径
+    let   bucketLoad = 0;       // 現在の積載量 0..1
+    const _tip = new THREE.Vector3();
+    let   fieldChanged = false; // この変形で頂点が動いたか
+    let   normAccum = 0;        // 法線再計算の間引き用
+
+    // 刃先まわりの頂点を tipY まで下げ、削った分を積載量へ
+    function digBrush(cx, cz, tipY, dt) {
+      const target = Math.max(tipY, DIG_MIN);
+      const rad = Math.ceil(DIG_RADIUS / CELL);
+      const ixc = Math.round((cx + FIELD_HW) / CELL);
+      const izc = Math.round((FIELD_HW + cz) / CELL);
+      const rate = 3.2 * dt; // 1フレームの最大降下量
+      let changed = false;
+      for (let dz = -rad; dz <= rad; dz++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          if (bucketLoad >= LOAD_CAP) return changed;
+          const ix = ixc + dx, iy = izc + dz;
+          if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) continue;
+          const wx = ix * CELL - FIELD_HW;
+          const wz = iy * CELL - FIELD_HW;
+          const d = Math.hypot(wx - cx, wz - cz);
+          if (d > DIG_RADIUS) continue;
+          const idx = iy * (FIELD_SEG + 1) + ix;
+          const h = fieldPos.getY(idx);
+          if (h <= target + 0.001) continue;
+          const fall = 1 - d / DIG_RADIUS;
+          const lower = Math.min(h - target, rate * (0.4 + 0.6 * fall));
+          if (lower <= 0) continue;
+          const nh = h - lower;
+          fieldPos.setY(idx, nh);
+          setVertColor(idx, nh);
+          bucketLoad = Math.min(LOAD_CAP, bucketLoad + lower * 0.16);
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    // 刃先直下に盛土（排土）
+    function pileBrush(cx, cz, amount) {
+      const R = DIG_RADIUS + 0.5;
+      const rad = Math.ceil(R / CELL);
+      const ixc = Math.round((cx + FIELD_HW) / CELL);
+      const izc = Math.round((FIELD_HW + cz) / CELL);
+      const rise = amount * 2.2;
+      let changed = false;
+      for (let dz = -rad; dz <= rad; dz++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          const ix = ixc + dx, iy = izc + dz;
+          if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) continue;
+          const wx = ix * CELL - FIELD_HW;
+          const wz = iy * CELL - FIELD_HW;
+          const d = Math.hypot(wx - cx, wz - cz);
+          if (d > R) continue;
+          const idx = iy * (FIELD_SEG + 1) + ix;
+          const h = fieldPos.getY(idx);
+          const fall = 1 - d / R;
+          const nh = Math.min(PILE_MAX, h + rise * fall * fall);
+          if (nh - h < 0.0005) continue;
+          fieldPos.setY(idx, nh);
+          setVertColor(idx, nh);
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    function updateSoilVisual() {
+      if (bucketLoad > 0.02) {
+        soilInBucket.visible = true;
+        const s = 0.35 + 0.65 * bucketLoad;
+        soilInBucket.scale.set(0.7 + 0.3 * bucketLoad, s, 0.7 + 0.3 * bucketLoad);
+      } else {
+        soilInBucket.visible = false;
+      }
+      const fill = document.getElementById('loadFill');
+      if (fill) fill.style.width = (bucketLoad * 100).toFixed(0) + '%';
+    }
+
+    function updateDigging(dt) {
+      bucketTip.getWorldPosition(_tip);
+      const groundH = heightAtWorld(_tip.x, _tip.z);
+      const penetrating = _tip.y < groundH - 0.02;
+      // バケット: value大=閉じる(掬う) / value小=開く(排土)
+      const isOpen = joints.bucket.value < 0.15;
+
+      let changed = false;
+      if (penetrating && bucketLoad < LOAD_CAP && !isOpen) {
+        changed = digBrush(_tip.x, _tip.z, _tip.y, dt);
+      } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
+        const drop = Math.min(bucketLoad, dt * 0.7);
+        bucketLoad -= drop;
+        changed = pileBrush(_tip.x, _tip.z, drop);
+      }
+
+      updateSoilVisual();
+
+      if (changed) {
+        fieldPos.needsUpdate = true;
+        colAttr.needsUpdate = true;
+        fieldChanged = true;
+      }
+      // 法線の再計算は重いので ~20Hz に間引く
+      normAccum += dt;
+      if (fieldChanged && normAccum > 0.05) {
+        fieldGeo.computeVertexNormals();
+        normAccum = 0;
+        fieldChanged = false;
+      }
+    }
+
     // ===== リサイズ対応 =====
     function resize() {
       const w = window.innerWidth;
@@ -647,6 +857,7 @@
       const dt = Math.min(clock.getDelta(), 0.05);
       updateJoints(dt);
       updateHydraulics();
+      updateDigging(dt);
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
     }
