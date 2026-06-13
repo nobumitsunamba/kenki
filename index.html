@@ -126,6 +126,9 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     document.getElementById('app').appendChild(renderer.domElement);
 
     // ===== シーン =====
@@ -139,10 +142,14 @@
     camera.lookAt(0, 3, 0);
 
     // ===== ライト =====
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    // 空(青)＋地面(土色)からの環境光で陰影に色味を持たせる
+    const hemi = new THREE.HemisphereLight(0xbcd6f0, 0x5a5238, 0.85);
+    scene.add(hemi);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
     scene.add(ambient);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    const dir = new THREE.DirectionalLight(0xfff4e0, 1.15);
     dir.position.set(20, 35, 15);
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
@@ -152,26 +159,68 @@
     dir.shadow.camera.right = 40;
     dir.shadow.camera.top = 40;
     dir.shadow.camera.bottom = -40;
+    dir.shadow.bias = -0.0004;
+    dir.shadow.normalBias = 0.02;
     scene.add(dir);
 
-    // ===== 地面 =====
+    // 逆光側からの弱い補助光（影が真っ黒にならないように）
+    const fill = new THREE.DirectionalLight(0xaac4e0, 0.3);
+    fill.position.set(-18, 12, -20);
+    scene.add(fill);
+
+    // ===== 地面（土っぽい手続き的テクスチャ）=====
+    function makeGroundTexture() {
+      const S = 512;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = S;
+      const ctx = cv.getContext('2d');
+      // ベースの土色
+      ctx.fillStyle = '#8f9a63';
+      ctx.fillRect(0, 0, S, S);
+      // ランダムな斑点で凹凸感
+      for (let i = 0; i < 9000; i++) {
+        const x = Math.random() * S, y = Math.random() * S;
+        const r = Math.random() * 2.4 + 0.4;
+        const shade = (Math.random() * 60 - 30) | 0;
+        const base = 0x8f, g = 0x9a, b = 0x63;
+        ctx.fillStyle = `rgb(${base + shade}, ${g + shade}, ${b + (shade >> 1)})`;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      const tex = new THREE.CanvasTexture(cv);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(40, 40);
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+    const groundTex = makeGroundTexture();
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(200, 1, 200),
-      new THREE.MeshStandardMaterial({ color: COLOR_GROUND, roughness: 1.0 })
+      new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1.0 })
     );
     ground.position.y = -0.5;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // グリッド（位置把握用）
-    const grid = new THREE.GridHelper(200, 50, 0x6b774f, 0x7a875c);
+    // 控えめなグリッド（位置把握用, フェードさせる）
+    const grid = new THREE.GridHelper(120, 40, 0x6f7a4d, 0x7a875c);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.25;
     grid.position.y = 0.02;
     scene.add(grid);
 
     // ===== マテリアル =====
-    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.6, metalness: 0.2 });
-    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.9, metalness: 0.1 });
+    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.55, metalness: 0.25 });
+    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.9,  metalness: 0.1 });
     const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.85, metalness: 0.1 });
+    // 油圧シリンダーのロッド（クロムメッキ風の光る鋼）
+    const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.2, metalness: 0.9 });
+    // シリンダーのバレル（やや暗い鋼）
+    const matBarrel = new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 0.45, metalness: 0.7 });
 
     // 影を落とす／受ける設定のヘルパ
     function mesh(geo, mat) {
@@ -205,18 +254,75 @@
     trackR.position.set(2.6, 0.8, 0);
     base.add(trackR);
 
-    // 履帯のローラー（シリンダーで前後に）
+    // 駆動輪(後)・遊動輪(前) — 大きめのスプロケット
     for (const sx of [-2.6, 2.6]) {
       for (const sz of [-3.6, 3.6]) {
-        const roller = mesh(
-          new THREE.CylinderGeometry(0.9, 0.9, 2.0, 20),
+        const wheel = mesh(
+          new THREE.CylinderGeometry(0.95, 0.95, 2.1, 24),
           matDark2
         );
-        roller.rotation.z = Math.PI / 2;
-        roller.position.set(sx, 0.8, sz);
-        base.add(roller);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(sx, 0.8, sz);
+        base.add(wheel);
+        // ハブ（中心の明るい円盤）
+        const hub = mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.18, 16), matDark);
+        hub.rotation.z = Math.PI / 2;
+        hub.position.set(sx, 0.8, sz);
+        base.add(hub);
       }
     }
+    // 下部転輪（小径ローラーを下側に複数）
+    for (const sx of [-2.6, 2.6]) {
+      for (const sz of [-2.0, -0.7, 0.7, 2.0]) {
+        const r = mesh(new THREE.CylinderGeometry(0.5, 0.5, 2.05, 16), matDark);
+        r.rotation.z = Math.PI / 2;
+        r.position.set(sx, 0.5, sz);
+        base.add(r);
+      }
+    }
+
+    // 履板（グローサ）— 履帯の外周に沿って等間隔のプレートを並べる
+    // 楕円状の経路（前後の輪 + 上下の直線）を近似して配置。
+    function addTrackShoes(sx) {
+      const shoeGeo = new THREE.BoxGeometry(2.15, 0.18, 0.62);
+      const R = 0.95;           // 端の輪の半径
+      const zEnd = 3.6;         // 端の輪の中心z
+      const yC = 0.8;           // 輪の中心高さ
+      const N = 9;              // 上下の直線部の枚数
+      const place = (y, z, rot) => {
+        const shoe = mesh(shoeGeo, matDark);
+        shoe.position.set(sx, y, z);
+        shoe.rotation.x = rot;
+        base.add(shoe);
+        // グローサの突起（接地ラグ）
+        const lug = mesh(new THREE.BoxGeometry(2.0, 0.12, 0.16), matDark2);
+        lug.position.set(sx, y - Math.cos(rot) * 0.14, z + Math.sin(rot) * 0.14);
+        lug.rotation.x = rot;
+        base.add(lug);
+      };
+      // 上面（直線）
+      for (let i = 0; i < N; i++) {
+        const z = -zEnd + (2 * zEnd) * (i / (N - 1));
+        place(yC + R, z, 0);
+      }
+      // 下面（直線, 接地側）
+      for (let i = 0; i < N; i++) {
+        const z = -zEnd + (2 * zEnd) * (i / (N - 1));
+        place(yC - R, z, Math.PI);
+      }
+      // 前後の輪の周り（半円）
+      const arc = 6;
+      for (const [zc, dir] of [[zEnd, 1], [-zEnd, -1]]) {
+        for (let i = 1; i < arc; i++) {
+          const a = -Math.PI / 2 + Math.PI * (i / arc); // -90°→+90°
+          const y = yC + R * Math.cos(a);
+          const z = zc + dir * R * Math.sin(a);
+          place(y, z, dir * a + (dir < 0 ? Math.PI : 0));
+        }
+      }
+    }
+    addTrackShoes(-2.6);
+    addTrackShoes(2.6);
 
     // 下部フレーム
     const underframe = mesh(new THREE.BoxGeometry(4.0, 0.8, 6.5), matDark2);
@@ -280,11 +386,6 @@
     boomPin.rotation.z = Math.PI / 2;
     boom.add(boomPin);
 
-    // ブーム油圧シリンダー（見た目用, 固定で1本）
-    const boomCyl = mesh(new THREE.CylinderGeometry(0.28, 0.28, 4.2, 14), matDark2);
-    boomCyl.position.set(0, 0.9, 2.0);
-    boomCyl.rotation.x = Math.PI / 2.6;
-    boom.add(boomCyl);
 
     // ----- アーム（X軸ピッチ）-----
     // ブーム先端がアームのピボット。
@@ -301,11 +402,6 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
-    // アーム油圧シリンダー（見た目用）
-    const armCyl = mesh(new THREE.CylinderGeometry(0.22, 0.22, 3.0, 14), matDark2);
-    armCyl.position.set(0, 0.7, 1.4);
-    armCyl.rotation.x = Math.PI / 2.4;
-    arm.add(armCyl);
 
     // ----- バケット（X軸ピッチで開閉）-----
     // アーム先端がバケットのピボット。
@@ -341,6 +437,85 @@
       tooth.rotation.x = -0.15;
       bucket.add(tooth);
     }
+
+    // =========================================================
+    //  油圧シリンダー（関節連動でロッドが伸縮）
+    //  2点(アンカー)の間を、固定長のバレル＋スライドするロッドで繋ぐ。
+    //  各フレームでアンカーのワールド座標を取得し、向き・長さを更新する。
+    // =========================================================
+    const hydraulics = [];
+    function addHydraulic(parentA, localA, parentB, localB, opt = {}) {
+      const aAnchor = new THREE.Object3D();
+      aAnchor.position.copy(localA);
+      parentA.add(aAnchor);
+      const bAnchor = new THREE.Object3D();
+      bAnchor.position.copy(localB);
+      parentB.add(bAnchor);
+
+      const barrelLen = opt.barrelLen ?? 1.8;
+      const barrelR   = opt.barrelR   ?? 0.18;
+      const rodR      = opt.rodR       ?? 0.10;
+
+      // バレルもロッドも軸はローカルY。Y長さ1で作り scale.y で伸縮。
+      const barrel = mesh(new THREE.CylinderGeometry(barrelR, barrelR, 1, 16), matBarrel);
+      const rod    = mesh(new THREE.CylinderGeometry(rodR, rodR, 1, 12), matSteel);
+      // 取り付けピン（両端）
+      const pinA = mesh(new THREE.CylinderGeometry(barrelR * 1.3, barrelR * 1.3, barrelR * 3, 12), matDark);
+      const pinB = mesh(new THREE.CylinderGeometry(rodR * 1.6, rodR * 1.6, barrelR * 3, 12), matDark);
+      scene.add(barrel, rod, pinA, pinB);
+
+      hydraulics.push({ aAnchor, bAnchor, barrel, rod, pinA, pinB, barrelLen });
+    }
+
+    const _wa = new THREE.Vector3(), _wb = new THREE.Vector3();
+    const _dir = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+    const _quat = new THREE.Quaternion(), _perp = new THREE.Vector3();
+    function updateHydraulics() {
+      for (const h of hydraulics) {
+        h.aAnchor.getWorldPosition(_wa);
+        h.bAnchor.getWorldPosition(_wb);
+        _dir.subVectors(_wb, _wa);
+        const D = Math.max(0.001, _dir.length());
+        _dir.multiplyScalar(1 / D);
+        _quat.setFromUnitVectors(_up, _dir);
+
+        const bLen = Math.min(h.barrelLen, D * 0.6);
+        // バレル: A端からB方向へ bLen
+        h.barrel.scale.y = bLen;
+        h.barrel.quaternion.copy(_quat);
+        h.barrel.position.copy(_wa).addScaledVector(_dir, bLen / 2);
+        // ロッド: B端からA方向へ。バレルと少し重ねる。
+        const rodLen = Math.max(0.2, D - bLen + 0.3);
+        h.rod.scale.y = rodLen;
+        h.rod.quaternion.copy(_quat);
+        h.rod.position.copy(_wb).addScaledVector(_dir, -rodLen / 2);
+        // ピン（軸方向と直交させて横向きに）
+        _perp.set(0, 0, 1).applyQuaternion(_quat); // 適当な直交軸
+        h.pinA.quaternion.setFromUnitVectors(_up, _perp);
+        h.pinA.position.copy(_wa);
+        h.pinB.quaternion.copy(h.pinA.quaternion);
+        h.pinB.position.copy(_wb);
+      }
+    }
+
+    // ブームシリンダー: 旋回体前部下 → ブーム下面
+    addHydraulic(
+      swing, new THREE.Vector3(0.9, 0.0, 1.4),
+      boom,  new THREE.Vector3(0, -0.55, 3.2),
+      { barrelLen: 2.6, barrelR: 0.22, rodR: 0.13 }
+    );
+    // アームシリンダー: ブーム上面 → アーム上面付け根
+    addHydraulic(
+      boom, new THREE.Vector3(0, 0.75, 3.0),
+      arm,  new THREE.Vector3(0, 0.55, 1.1),
+      { barrelLen: 2.2, barrelR: 0.19, rodR: 0.11 }
+    );
+    // バケットシリンダー: アーム上面先端 → バケット背面上部
+    addHydraulic(
+      arm,    new THREE.Vector3(0, 0.6, 3.4),
+      bucket, new THREE.Vector3(0, 0.35, 0.15),
+      { barrelLen: 1.5, barrelR: 0.15, rodR: 0.09 }
+    );
 
     // =========================================================
     //  関節の初期角度・クランプ（現実的な可動域）
@@ -471,6 +646,7 @@
     function animate() {
       const dt = Math.min(clock.getDelta(), 0.05);
       updateJoints(dt);
+      updateHydraulics();
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
     }
