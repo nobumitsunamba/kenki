@@ -142,9 +142,10 @@
     import * as THREE from 'three';
 
     // ===== 色定義 =====
-    const COLOR_BODY   = 0x0B5FA5; // コベルコ建機ブルー系
-    const COLOR_DARK   = 0x2b2f33; // 履帯・バケット ダークグレー
+    const COLOR_BODY   = 0x1B7E86; // コベルコ建機 ブルーグリーン系
+    const COLOR_DARK   = 0x2b2f33; // 履帯 ダークグレー
     const COLOR_DARK2  = 0x3c4146; // やや明るいダークグレー
+    const COLOR_CAB    = 0x23262a; // 運転席フレーム 濃いグレー
     const COLOR_GROUND = 0x9caa6f; // 地面
 
     // ===== レンダラ =====
@@ -303,6 +304,27 @@
     const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.2, metalness: 0.9 });
     // シリンダーのバレル（やや暗い鋼）
     const matBarrel = new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 0.45, metalness: 0.7 });
+    // 運転席フレーム（濃いグレー）とガラス
+    const matCab   = new THREE.MeshStandardMaterial({ color: COLOR_CAB, roughness: 0.5, metalness: 0.3 });
+    const matGlass = new THREE.MeshStandardMaterial({ color: 0x1d2a33, roughness: 0.1, metalness: 0.5, transparent: true, opacity: 0.65 });
+
+    // テキストを描いたテクスチャ（看板用）
+    function makeTextTexture(text, bg, fg) {
+      const cv = document.createElement('canvas');
+      cv.width = 512; cv.height = 160;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = fg;
+      ctx.font = 'bold 110px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, cv.width / 2, cv.height / 2 + 6);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return tex;
+    }
 
     // 影を落とす／受ける設定のヘルパ
     function mesh(geo, mat) {
@@ -421,26 +443,40 @@
     turntable.position.set(0, 0.25, 0);
     swing.add(turntable);
 
-    // 車体本体（ブルー）少し後方寄り
+    // 車体本体（ブルーグリーン）少し後方寄り
     const cabBody = mesh(new THREE.BoxGeometry(4.2, 2.2, 5.2), matBody);
     cabBody.position.set(0, 1.6, -0.8);
     swing.add(cabBody);
 
-    // カウンターウェイト（後部, ダーク）
-    const counter = mesh(new THREE.BoxGeometry(4.4, 2.0, 1.4), matDark2);
+    // カウンターウェイト（後部, ブルーグリーン）
+    const counter = mesh(new THREE.BoxGeometry(4.4, 2.0, 1.4), matBody);
     counter.position.set(0, 1.6, -3.4);
     swing.add(counter);
 
-    // オペレータキャブ（左前, ブルー＋ガラス風）
-    const cab = mesh(new THREE.BoxGeometry(2.0, 2.4, 2.4), matBody);
+    // お尻に KOBELCO の銘板（白地に文字）
+    const kobeTex = makeTextTexture('KOBELCO', '#ffffff', '#0a3d44');
+    kobeTex.center.set(0.5, 0.5);
+    kobeTex.repeat.x = -1; // 背面向きで鏡像にならないよう反転
+    const nameplate = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.2, 1.0),
+      new THREE.MeshStandardMaterial({ map: kobeTex, roughness: 0.6 })
+    );
+    nameplate.position.set(0, 1.75, -4.105); // カウンターウェイト背面
+    nameplate.rotation.y = Math.PI;          // -Z を向く
+    swing.add(nameplate);
+
+    // オペレータキャブ（左前）: 濃いグレーのフレームにガラスをはめ込む
+    const cab = mesh(new THREE.BoxGeometry(2.0, 2.4, 2.4), matCab);
     cab.position.set(-1.4, 2.0, 1.6);
     swing.add(cab);
-    const cabGlass = mesh(
-      new THREE.BoxGeometry(1.9, 1.6, 2.3),
-      new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2, metalness: 0.4, transparent: true, opacity: 0.7 })
-    );
-    cabGlass.position.set(-1.45, 2.4, 1.6);
-    swing.add(cabGlass);
+    // 前面ガラス
+    const glassFront = mesh(new THREE.BoxGeometry(1.55, 1.5, 0.06), matGlass);
+    glassFront.position.set(-1.4, 2.25, 1.6 + 1.2 + 0.01);
+    swing.add(glassFront);
+    // 外側側面ガラス
+    const glassSide = mesh(new THREE.BoxGeometry(0.06, 1.5, 1.9), matGlass);
+    glassSide.position.set(-1.4 - 1.0 - 0.01, 2.25, 1.6);
+    swing.add(glassSide);
 
     // 排気筒
     const stack = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.9, 12), matDark);
@@ -495,40 +531,40 @@
     bucketPin.rotation.z = Math.PI / 2;
     bucket.add(bucketPin);
 
-    // バケット形状: 背板＋底板＋側板2枚（ダークグレー）
-    // 付け根(原点)から先端へオフセットして配置。
-    const bucketMat = matDark;
+    // バケット形状: 背板＋底板＋側板2枚（ブルーグリーン）
+    // くぼみ(開口)は機体側=-Z を向く。背板は腕側=+Z。
+    const bucketMat = matBody;
     const back = mesh(new THREE.BoxGeometry(1.6, 1.3, 0.18), bucketMat);
     back.position.set(0, -0.4, 0.25);
     bucket.add(back);
 
     const bottom = mesh(new THREE.BoxGeometry(1.6, 0.18, 1.3), bucketMat);
-    bottom.position.set(0, -1.0, 0.85);
-    bottom.rotation.x = -0.15;
+    bottom.position.set(0, -1.0, -0.45);
+    bottom.rotation.x = 0.15;
     bucket.add(bottom);
 
     for (const sx of [-0.8, 0.8]) {
       const side = mesh(new THREE.BoxGeometry(0.16, 1.2, 1.3), bucketMat);
-      side.position.set(sx, -0.6, 0.7);
+      side.position.set(sx, -0.6, -0.3);
       bucket.add(side);
     }
-    // 刃先（ツース風）
+    // 刃先（ツース風）— 機体側(-Z)の開口の縁
     for (let i = -1; i <= 1; i++) {
       const tooth = mesh(new THREE.BoxGeometry(0.22, 0.18, 0.45), matDark2);
-      tooth.position.set(i * 0.5, -0.95, 1.55);
-      tooth.rotation.x = -0.15;
+      tooth.position.set(i * 0.5, -0.95, -1.15);
+      tooth.rotation.x = 0.15;
       bucket.add(tooth);
     }
 
-    // 掘削判定用の刃先アンカー（ツースの先端あたり）
+    // 掘削判定用の刃先アンカー（ツースの先端あたり, -Z側）
     const bucketTip = new THREE.Object3D();
-    bucketTip.position.set(0, -1.0, 1.75);
+    bucketTip.position.set(0, -1.0, -1.35);
     bucket.add(bucketTip);
 
     // バケット内の土（積載量に応じて表示・スケール）
     const matSoil = new THREE.MeshStandardMaterial({ color: 0x6f5337, roughness: 1.0 });
     const soilInBucket = mesh(new THREE.BoxGeometry(1.4, 0.9, 1.15), matSoil);
-    soilInBucket.position.set(0, -0.55, 0.8);
+    soilInBucket.position.set(0, -0.55, -0.4);
     soilInBucket.visible = false;
     bucket.add(soilInBucket);
 
