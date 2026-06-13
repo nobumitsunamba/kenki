@@ -39,6 +39,18 @@
       backdrop-filter: blur(2px);
       -webkit-backdrop-filter: blur(2px);
     }
+    /* 走行スティックは小さめ・色分け */
+    .stick.travel {
+      width: 96px; height: 96px;
+      align-self: center;
+      background: rgba(255,200,80,0.14);
+      border-color: rgba(255,210,120,0.6);
+    }
+    .stick.travel .knob {
+      width: 44px; height: 44px;
+      margin-left: -22px; margin-top: -22px;
+      background: rgba(255,225,160,0.9);
+    }
     .knob {
       position: absolute;
       left: 50%; top: 50%;
@@ -127,6 +139,14 @@
       <div class="axis-hint left">旋回左</div>
       <div class="axis-hint right">旋回右</div>
       <div class="knob" id="knobLeft"></div>
+    </div>
+    <div class="stick travel" id="stickTravel">
+      <div class="label">走行</div>
+      <div class="axis-hint top">前進</div>
+      <div class="axis-hint bottom">後進</div>
+      <div class="axis-hint left">左</div>
+      <div class="axis-hint right">右</div>
+      <div class="knob" id="knobTravel"></div>
     </div>
     <div class="stick" id="stickRight">
       <div class="label">右レバー</div>
@@ -804,14 +824,13 @@
     //  left  : y(上下)=アーム, x(左右)=旋回
     //  right : y(上下)=ブーム, x(左右)=バケット
     // =========================================================
-    const input = { lx: 0, ly: 0, rx: 0, ry: 0 };
+    const input = { lx: 0, ly: 0, rx: 0, ry: 0, tx: 0, ty: 0 };
 
-    function setupStick(stickId, knobId, onChange) {
+    function setupStick(stickId, knobId, onChange, maxR = 44) {
       const stick = document.getElementById(stickId);
       const knob  = document.getElementById(knobId);
       let active = false;
       let pid = null;
-      const maxR = 44; // ノブ可動半径(px)
 
       function center() {
         const r = stick.getBoundingClientRect();
@@ -865,17 +884,53 @@
       input.rx = x;   // バケット
       input.ry = y;   // ブーム
     });
+    setupStick('stickTravel', 'knobTravel', (x, y) => {
+      input.tx = x;   // 走行 旋回
+      input.ty = y;   // 走行 前後
+    }, 30);
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-    // 地面との貫入制限: バケット先端が地表より深く潜れるのは MAX_PEN まで。
+    // ===== 重機本体の走行（前後進・信地旋回）=====
+    const TRAVEL_SPEED = 7.0; // 前後速度(units/s)
+    const TURN_SPEED   = 1.1; // 旋回速度(rad/s)
+    function updateTravel(dt) {
+      // 旋回: 左に倒す(tx<0)→左旋回(+Y)
+      base.rotation.y -= input.tx * TURN_SPEED * dt;
+      // 前後: 上に倒す(ty<0)→前進。機体前方は base ローカル +Z。
+      const fwd = -input.ty * TRAVEL_SPEED * dt;
+      const h = base.rotation.y;
+      base.position.x += Math.sin(h) * fwd;
+      base.position.z += Math.cos(h) * fwd;
+      // 掘削エリア内に収める
+      const lim = FIELD_HW - 6;
+      base.position.x = clamp(base.position.x, -lim, lim);
+      base.position.z = clamp(base.position.z, -lim, lim);
+    }
+
+    // 地面との貫入制限: バケットの最下部が地表より深く潜れるのは MAX_PEN まで。
     // それ以上潜らせようとしてもブーム/アームを戻して止める（掘れた分だけ下がる）。
-    const MAX_PEN = 1.0;
+    // 刃先だけでなく底の複数点を見る（掬って閉じると底が最下点になるため）。
+    const MAX_PEN = 0.8;
+    const _samplePts = [
+      new THREE.Vector3(0,    -1.18, -1.25), // 刃先
+      new THREE.Vector3(0,    -1.25, -0.45), // 底 中央
+      new THREE.Vector3(0,    -1.20,  0.15), // 底 かかと側
+      new THREE.Vector3( 0.6, -1.20, -0.45), // 底 右
+      new THREE.Vector3(-0.6, -1.20, -0.45), // 底 左
+    ];
     const _ctip = new THREE.Vector3();
     let lastPen = 0;
     function tipPenetration() {
-      bucketTip.getWorldPosition(_ctip);
-      return heightAtWorld(_ctip.x, _ctip.z) - _ctip.y;
+      bucket.updateWorldMatrix(true, false);
+      let mp = -Infinity;
+      for (const p of _samplePts) {
+        _ctip.copy(p);
+        bucket.localToWorld(_ctip);
+        const pen = heightAtWorld(_ctip.x, _ctip.z) - _ctip.y;
+        if (pen > mp) mp = pen;
+      }
+      return mp;
     }
 
     function updateJoints(dt) {
@@ -1045,10 +1100,14 @@
     const clock = new THREE.Clock();
     function animate() {
       const dt = Math.min(clock.getDelta(), 0.05);
+      updateTravel(dt);
       updateJoints(dt);
       updateLinkage();
       updateHydraulics();
       updateDigging(dt);
+      // カメラは機体を追従（一定のオフセットで見下ろす）
+      camera.position.set(base.position.x + 22, 18, base.position.z + 26);
+      camera.lookAt(base.position.x, 3, base.position.z);
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
     }
