@@ -130,8 +130,8 @@
     </div>
     <div class="stick" id="stickRight">
       <div class="label">右レバー</div>
-      <div class="axis-hint top">ブーム上</div>
-      <div class="axis-hint bottom">ブーム下</div>
+      <div class="axis-hint top">ブーム下</div>
+      <div class="axis-hint bottom">ブーム上</div>
       <div class="axis-hint left">バケット閉</div>
       <div class="axis-hint right">バケット開</div>
       <div class="knob" id="knobRight"></div>
@@ -890,8 +890,8 @@
       // アーム（左レバー上下）: 上に倒す(y<0)→伸ばす(角度を小さく)
       joints.arm.value = clamp(joints.arm.value + input.ly * joints.arm.speed * dt, joints.arm.min, joints.arm.max);
 
-      // ブーム（右レバー上下）: 上に倒す(y<0)→ブーム上げ(値を小さく=先端が上)
-      joints.boom.value = clamp(joints.boom.value + input.ry * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
+      // ブーム（右レバー上下）: 上に倒す(y<0)→ブーム下げ / 下に倒す(y>0)→ブーム上げ
+      joints.boom.value = clamp(joints.boom.value - input.ry * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
 
       // バケット（右レバー左右）: 右(x>0)→開く(角度小さく), 左→閉じる(掬う)
       joints.bucket.value = clamp(joints.bucket.value - input.rx * joints.bucket.speed * dt, joints.bucket.min, joints.bucket.max);
