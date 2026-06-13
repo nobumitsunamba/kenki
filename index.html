@@ -165,7 +165,7 @@
     const COLOR_BODY   = 0x00A3AE; // コベルコ建機 ブルーグリーン（ロゴ背景の明るいティール）
     const COLOR_DARK   = 0x2b2f33; // 履帯 ダークグレー
     const COLOR_DARK2  = 0x3c4146; // やや明るいダークグレー
-    const COLOR_CAB    = 0x23262a; // 運転席フレーム 濃いグレー
+    const COLOR_CAB    = 0x33383d; // 運転席フレーム 濃いグレー
     const COLOR_GROUND = 0x9caa6f; // 地面
 
     // ===== レンダラ =====
@@ -453,9 +453,9 @@
     deck.position.set(0, 0.26, -0.7);
     swing.add(deck);
 
-    // エンジンフード(後部)
-    const hood = mesh(new THREE.BoxGeometry(2.5, 0.95, 2.2), matBody);
-    hood.position.set(0.05, 0.92, -1.35);
+    // エンジンフード(後部) — キャブより低く
+    const hood = mesh(new THREE.BoxGeometry(2.45, 0.8, 2.2), matBody);
+    hood.position.set(0.05, 0.78, -1.35);
     swing.add(hood);
 
     // カウンターウェイト（最後部, R2.91）
@@ -473,18 +473,22 @@
     nameplate.rotation.y = Math.PI;          // -Z を向く
     swing.add(nameplate);
 
-    // オペレータキャブ（左前）: 濃いグレーのフレームにガラスをはめ込む。天端=地上2.98。
-    const cab = mesh(new THREE.BoxGeometry(0.98, 1.7, 1.5), matCab);
-    cab.position.set(-0.78, 1.1, 0.55);
+    // オペレータキャブ（左前）: 濃いグレーのフレームに大きなガラス。天端=地上2.98。
+    const cab = mesh(new THREE.BoxGeometry(1.02, 1.56, 1.8), matCab);
+    cab.position.set(-0.79, 1.20, 0.6);
     swing.add(cab);
-    // 前面ガラス
-    const glassFront = mesh(new THREE.BoxGeometry(0.8, 1.0, 0.05), matGlass);
-    glassFront.position.set(-0.78, 1.25, 0.55 + 0.75 + 0.01);
+    // 前面ガラス（大きめ）
+    const glassFront = mesh(new THREE.BoxGeometry(0.86, 1.1, 0.05), matGlass);
+    glassFront.position.set(-0.79, 1.4, 0.6 + 0.9 + 0.01);
     swing.add(glassFront);
-    // 外側側面ガラス
-    const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.0, 1.1), matGlass);
-    glassSide.position.set(-0.78 - 0.49 - 0.01, 1.25, 0.55);
+    // 外側側面ガラス（大きめ）
+    const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.1, 1.5), matGlass);
+    glassSide.position.set(-0.79 - 0.51 - 0.01, 1.4, 0.6);
     swing.add(glassSide);
+    // 後方側ガラス
+    const glassRear = mesh(new THREE.BoxGeometry(0.78, 0.9, 0.05), matGlass);
+    glassRear.position.set(-0.79, 1.35, 0.6 - 0.9 - 0.01);
+    swing.add(glassRear);
 
     // 排気筒
     const stack = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.55, 12), matDark);
@@ -530,7 +534,7 @@
 
     // ブーム本体: 「へ字」に反り、根元→先で薄くなるテーパー梁。
     // 反り cy = 中央が上, 厚み half = 根元厚め。両端は z 軸上(cy=0)でピボット/先端に一致。
-    const BOOM_CURVE = 0.72;
+    const BOOM_CURVE = 0.88;
     const boomCenterY = (z) => BOOM_CURVE * Math.sin(Math.PI * z / BOOM_LEN);
     const boomHalf    = (z) => 0.42 - 0.13 * (z / BOOM_LEN);
     {
