@@ -201,16 +201,16 @@
       const cv = document.createElement('canvas');
       cv.width = cv.height = S;
       const ctx = cv.getContext('2d');
-      // ベースの土色
-      ctx.fillStyle = '#8f9a63';
+      // ベースの土色（黄土色）
+      ctx.fillStyle = '#c2a24e';
       ctx.fillRect(0, 0, S, S);
       // ランダムな斑点で凹凸感
       for (let i = 0; i < 9000; i++) {
         const x = Math.random() * S, y = Math.random() * S;
         const r = Math.random() * 2.4 + 0.4;
         const shade = (Math.random() * 60 - 30) | 0;
-        const base = 0x8f, g = 0x9a, b = 0x63;
-        ctx.fillStyle = `rgb(${base + shade}, ${g + shade}, ${b + (shade >> 1)})`;
+        const base = 0xc2, g = 0xa2, b = 0x4e;
+        ctx.fillStyle = `rgb(${base + shade}, ${g + shade}, ${b + shade})`;
         ctx.globalAlpha = 0.5;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -253,10 +253,10 @@
     fieldGeo.setAttribute('color', colAttr);
 
     // sRGB色をリニアに変換して保持（vertexColorsはリニア前提）
-    const C_GRASS = new THREE.Color(0x8f9a63).convertSRGBToLinear();
-    const C_DIRT  = new THREE.Color(0x6f5337).convertSRGBToLinear(); // 掘削面
-    const C_DEEP  = new THREE.Color(0x4d3a26).convertSRGBToLinear(); // 深部
-    const C_PILE  = new THREE.Color(0x866444).convertSRGBToLinear(); // 盛土（ほぐれた土）
+    const C_GRASS = new THREE.Color(0xc2a24e).convertSRGBToLinear(); // 表土（黄土色）
+    const C_DIRT  = new THREE.Color(0x8a6a38).convertSRGBToLinear(); // 掘削面
+    const C_DEEP  = new THREE.Color(0x5e4524).convertSRGBToLinear(); // 深部
+    const C_PILE  = new THREE.Color(0xb89052).convertSRGBToLinear(); // 盛土（ほぐれた土）
 
     function setVertColor(idx, h) {
       let c;
@@ -723,8 +723,8 @@
       _p1.copy(_p1w); arm.worldToLocal(_p1);
       _p2.copy(_p2w); arm.worldToLocal(_p2);
       if (!linkInit) {
-        // 初期姿勢から各リンク長を確定（結節点を少し上に置く）
-        const ny = (_p1.y + _p2.y) / 2 + 0.6, nz = (_p1.z + _p2.z) / 2;
+        // 初期姿勢から各リンク長を確定（結節点を上に置きマージンを確保）
+        const ny = (_p1.y + _p2.y) / 2 + 0.9, nz = (_p1.z + _p2.z) / 2;
         L_idler = Math.hypot(ny - _p1.y, nz - _p1.z);
         L_power = Math.hypot(ny - _p2.y, nz - _p2.z);
         linkInit = true;
@@ -737,11 +737,11 @@
       const hh = Math.sqrt(h2);
       const uy = dy / d, uz = dz / d;        // _p1→_p2 単位ベクトル
       const my = _p1.y + a * uy, mz = _p1.z + a * uz;
-      // 垂線方向 (-uz, uy)。上側(yが大きい)の解を採用。
-      const yA = my + hh * (-uz), zA = mz + hh * uy;
-      const yB = my - hh * (-uz), zB = mz - hh * uy;
-      const ny = yA >= yB ? yA : yB;
-      const nz = yA >= yB ? zA : zB;
+      // 結節点は常に同じ組み立てモード(uを-90°回した側)に固定。
+      // これを上下選択(max y)にすると開く途中でモードが反転し、シリンダーが
+      // アーム側へ飛び込む。固定側にすることで連続的に動く。
+      const ny = my + hh * uz;
+      const nz = mz - hh * uy;
       _node.set(0, ny, nz);
       arm.localToWorld(_node);
       linkNode.position.copy(_node);
