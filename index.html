@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>油圧ショベル操作シミュレーター</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #87b9e0;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+    }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* バーチャルレバーのオーバーレイ */
+    #controls {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      /* セーフエリア対応 */
+      padding: 0 max(24px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-right));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      pointer-events: none; /* 個々のスティックだけ受ける */
+      z-index: 10;
+    }
+    .stick {
+      position: relative;
+      width: 130px; height: 130px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.45);
+      touch-action: none;
+      pointer-events: auto;
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+    }
+    .knob {
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 58px; height: 58px;
+      margin-left: -29px; margin-top: -29px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.85);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: background 0.1s;
+    }
+    .stick .label {
+      position: absolute;
+      left: 0; right: 0; top: -26px;
+      text-align: center;
+      color: #fff;
+      font-size: 12px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+      letter-spacing: 1px;
+    }
+    .stick .axis-hint {
+      position: absolute;
+      color: rgba(255,255,255,0.7);
+      font-size: 10px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+      pointer-events: none;
+    }
+    .axis-hint.top    { left:0; right:0; top:6px;    text-align:center; }
+    .axis-hint.bottom { left:0; right:0; bottom:6px; text-align:center; }
+    .axis-hint.left   { left:6px; top:50%; transform:translateY(-50%); }
+    .axis-hint.right  { right:6px; top:50%; transform:translateY(-50%); }
+
+    #title {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: max(10px, env(safe-area-inset-top)) 14px 8px;
+      color: #fff; font-size: 13px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      pointer-events: none; z-index: 10;
+    }
+  </style>
+
+  <!-- Three.js を importmap で読み込む（ビルド不要） -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="title">油圧ショベル操作シミュレーター（JISパターン）</div>
+
+  <div id="controls">
+    <div class="stick" id="stickLeft">
+      <div class="label">左レバー</div>
+      <div class="axis-hint top">アーム伸</div>
+      <div class="axis-hint bottom">アーム縮</div>
+      <div class="axis-hint left">旋回左</div>
+      <div class="axis-hint right">旋回右</div>
+      <div class="knob" id="knobLeft"></div>
+    </div>
+    <div class="stick" id="stickRight">
+      <div class="label">右レバー</div>
+      <div class="axis-hint top">ブーム下</div>
+      <div class="axis-hint bottom">ブーム上</div>
+      <div class="axis-hint left">バケット閉</div>
+      <div class="axis-hint right">バケット開</div>
+      <div class="knob" id="knobRight"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // ===== 色定義 =====
+    const COLOR_BODY   = 0x0B5FA5; // コベルコ建機ブルー系
+    const COLOR_DARK   = 0x2b2f33; // 履帯・バケット ダークグレー
+    const COLOR_DARK2  = 0x3c4146; // やや明るいダークグレー
+    const COLOR_GROUND = 0x9caa6f; // 地面
+
+    // ===== レンダラ =====
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('app').appendChild(renderer.domElement);
+
+    // ===== シーン =====
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87b9e0);
+    scene.fog = new THREE.Fog(0x87b9e0, 60, 160);
+
+    // ===== カメラ（斜め見下ろし）=====
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+    camera.position.set(22, 18, 26);
+    camera.lookAt(0, 3, 0);
+
+    // ===== ライト =====
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(20, 35, 15);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.near = 1;
+    dir.shadow.camera.far = 120;
+    dir.shadow.camera.left = -40;
+    dir.shadow.camera.right = 40;
+    dir.shadow.camera.top = 40;
+    dir.shadow.camera.bottom = -40;
+    scene.add(dir);
+
+    // ===== 地面 =====
+    const ground = new THREE.Mesh(
+      new THREE.BoxGeometry(200, 1, 200),
+      new THREE.MeshStandardMaterial({ color: COLOR_GROUND, roughness: 1.0 })
+    );
+    ground.position.y = -0.5;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // グリッド（位置把握用）
+    const grid = new THREE.GridHelper(200, 50, 0x6b774f, 0x7a875c);
+    grid.position.y = 0.02;
+    scene.add(grid);
+
+    // ===== マテリアル =====
+    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.6, metalness: 0.2 });
+    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.9, metalness: 0.1 });
+    const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.85, metalness: 0.1 });
+
+    // 影を落とす／受ける設定のヘルパ
+    function mesh(geo, mat) {
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      return m;
+    }
+
+    // =========================================================
+    //  関節の親子構造
+    //  base
+    //   └ swing (Y軸旋回)
+    //       └ boom (X軸ピッチ)
+    //           └ arm (X軸ピッチ)
+    //               └ bucket (X軸ピッチ)
+    //  各 Group の原点 = 関節の付け根（ピボット）。
+    //  ジオメトリは原点からオフセットして配置する。
+    // =========================================================
+
+    // ----- ベース（車体下部＋履帯, 固定）-----
+    const base = new THREE.Group();
+    scene.add(base);
+
+    // 履帯（左右2本）ダークグレー
+    const trackGeo = new THREE.BoxGeometry(2.0, 1.6, 9.0);
+    const trackL = mesh(trackGeo, matDark);
+    trackL.position.set(-2.6, 0.8, 0);
+    base.add(trackL);
+    const trackR = mesh(trackGeo, matDark);
+    trackR.position.set(2.6, 0.8, 0);
+    base.add(trackR);
+
+    // 履帯のローラー（シリンダーで前後に）
+    for (const sx of [-2.6, 2.6]) {
+      for (const sz of [-3.6, 3.6]) {
+        const roller = mesh(
+          new THREE.CylinderGeometry(0.9, 0.9, 2.0, 20),
+          matDark2
+        );
+        roller.rotation.z = Math.PI / 2;
+        roller.position.set(sx, 0.8, sz);
+        base.add(roller);
+      }
+    }
+
+    // 下部フレーム
+    const underframe = mesh(new THREE.BoxGeometry(4.0, 0.8, 6.5), matDark2);
+    underframe.position.set(0, 1.7, 0);
+    base.add(underframe);
+
+    // ----- 上部旋回体（Y軸で旋回）-----
+    const swing = new THREE.Group();
+    swing.position.set(0, 2.1, 0); // 旋回ピボット = 下部フレーム上面の中心
+    base.add(swing);
+
+    // 旋回テーブル（円柱）
+    const turntable = mesh(new THREE.CylinderGeometry(2.6, 2.6, 0.5, 28), matDark2);
+    turntable.position.set(0, 0.25, 0);
+    swing.add(turntable);
+
+    // 車体本体（ブルー）少し後方寄り
+    const cabBody = mesh(new THREE.BoxGeometry(4.2, 2.2, 5.2), matBody);
+    cabBody.position.set(0, 1.6, -0.8);
+    swing.add(cabBody);
+
+    // カウンターウェイト（後部, ダーク）
+    const counter = mesh(new THREE.BoxGeometry(4.4, 2.0, 1.4), matDark2);
+    counter.position.set(0, 1.6, -3.4);
+    swing.add(counter);
+
+    // オペレータキャブ（左前, ブルー＋ガラス風）
+    const cab = mesh(new THREE.BoxGeometry(2.0, 2.4, 2.4), matBody);
+    cab.position.set(-1.4, 2.0, 1.6);
+    swing.add(cab);
+    const cabGlass = mesh(
+      new THREE.BoxGeometry(1.9, 1.6, 2.3),
+      new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.2, metalness: 0.4, transparent: true, opacity: 0.7 })
+    );
+    cabGlass.position.set(-1.45, 2.4, 1.6);
+    swing.add(cabGlass);
+
+    // 排気筒
+    const stack = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.9, 12), matDark);
+    stack.position.set(1.4, 3.1, -1.0);
+    swing.add(stack);
+
+    // ブームの取り付け基部（前方右寄り）— ここがブームのピボット
+    const BOOM_PIVOT = new THREE.Vector3(0.9, 1.4, 2.4);
+
+    // ----- ブーム（X軸ピッチ）-----
+    const boom = new THREE.Group();
+    boom.position.copy(BOOM_PIVOT);
+    swing.add(boom);
+
+    // ブーム本体: 長さ約6.5。付け根が原点なので前方(+方向)へオフセット。
+    // ブームは「く」の字気味に上に伸びる形を1本のボックスで近似。
+    const BOOM_LEN = 6.6;
+    const boomBox = mesh(new THREE.BoxGeometry(0.9, 0.9, BOOM_LEN), matBody);
+    // ローカル: ピボットから前方へ伸ばす（中心を半分だけ前に）
+    boomBox.position.set(0, 0, BOOM_LEN / 2);
+    boom.add(boomBox);
+
+    // ブームのピボット軸（シリンダー, 横向き）
+    const boomPin = mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 16), matDark);
+    boomPin.rotation.z = Math.PI / 2;
+    boom.add(boomPin);
+
+    // ブーム油圧シリンダー（見た目用, 固定で1本）
+    const boomCyl = mesh(new THREE.CylinderGeometry(0.28, 0.28, 4.2, 14), matDark2);
+    boomCyl.position.set(0, 0.9, 2.0);
+    boomCyl.rotation.x = Math.PI / 2.6;
+    boom.add(boomCyl);
+
+    // ----- アーム（X軸ピッチ）-----
+    // ブーム先端がアームのピボット。
+    const arm = new THREE.Group();
+    arm.position.set(0, 0, BOOM_LEN); // ブーム先端
+    boom.add(arm);
+
+    const ARM_LEN = 4.8;
+    const armBox = mesh(new THREE.BoxGeometry(0.7, 0.7, ARM_LEN), matBody);
+    armBox.position.set(0, 0, ARM_LEN / 2);
+    arm.add(armBox);
+
+    const armPin = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 16), matDark);
+    armPin.rotation.z = Math.PI / 2;
+    arm.add(armPin);
+
+    // アーム油圧シリンダー（見た目用）
+    const armCyl = mesh(new THREE.CylinderGeometry(0.22, 0.22, 3.0, 14), matDark2);
+    armCyl.position.set(0, 0.7, 1.4);
+    armCyl.rotation.x = Math.PI / 2.4;
+    arm.add(armCyl);
+
+    // ----- バケット（X軸ピッチで開閉）-----
+    // アーム先端がバケットのピボット。
+    const bucket = new THREE.Group();
+    bucket.position.set(0, 0, ARM_LEN); // アーム先端
+    arm.add(bucket);
+
+    const bucketPin = mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.8, 16), matDark);
+    bucketPin.rotation.z = Math.PI / 2;
+    bucket.add(bucketPin);
+
+    // バケット形状: 背板＋底板＋側板2枚（ダークグレー）
+    // 付け根(原点)から先端へオフセットして配置。
+    const bucketMat = matDark;
+    const back = mesh(new THREE.BoxGeometry(1.6, 1.3, 0.18), bucketMat);
+    back.position.set(0, -0.4, 0.25);
+    bucket.add(back);
+
+    const bottom = mesh(new THREE.BoxGeometry(1.6, 0.18, 1.3), bucketMat);
+    bottom.position.set(0, -1.0, 0.85);
+    bottom.rotation.x = -0.15;
+    bucket.add(bottom);
+
+    for (const sx of [-0.8, 0.8]) {
+      const side = mesh(new THREE.BoxGeometry(0.16, 1.2, 1.3), bucketMat);
+      side.position.set(sx, -0.6, 0.7);
+      bucket.add(side);
+    }
+    // 刃先（ツース風）
+    for (let i = -1; i <= 1; i++) {
+      const tooth = mesh(new THREE.BoxGeometry(0.22, 0.18, 0.45), matDark2);
+      tooth.position.set(i * 0.5, -0.95, 1.55);
+      tooth.rotation.x = -0.15;
+      bucket.add(tooth);
+    }
+
+    // =========================================================
+    //  関節の初期角度・クランプ（現実的な可動域）
+    // =========================================================
+    const joints = {
+      swing:  { obj: swing,  axis: 'y', value: 0.0,    min: -Math.PI, max: Math.PI, speed: 0.9, wrap: true },
+      // ブーム: 0=ほぼ水平前方。上げると負方向(先端が上)。
+      boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
+      // アーム: ブームに対する折れ角。
+      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.1,    max: 2.4,   speed: 0.9 },
+      // バケット: 開閉（掘削/排土）。
+      bucket: { obj: bucket, axis: 'x', value: 0.4,    min: -0.4,   max: 2.6,   speed: 1.1 },
+    };
+
+    function applyJoints() {
+      for (const k in joints) {
+        const j = joints[k];
+        j.obj.rotation[j.axis] = j.value;
+      }
+    }
+    applyJoints();
+
+    // =========================================================
+    //  バーチャルレバー（左右ジョイスティック）
+    //  入力値 input.* は -1..1 で保持。
+    //  left  : y(上下)=アーム, x(左右)=旋回
+    //  right : y(上下)=ブーム, x(左右)=バケット
+    // =========================================================
+    const input = { lx: 0, ly: 0, rx: 0, ry: 0 };
+
+    function setupStick(stickId, knobId, onChange) {
+      const stick = document.getElementById(stickId);
+      const knob  = document.getElementById(knobId);
+      let active = false;
+      let pid = null;
+      const maxR = 44; // ノブ可動半径(px)
+
+      function center() {
+        const r = stick.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }
+      function move(clientX, clientY) {
+        const c = center();
+        let dx = clientX - c.x;
+        let dy = clientY - c.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxR) { dx *= maxR / dist; dy *= maxR / dist; }
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+        knob.style.background = 'rgba(255,235,150,0.95)';
+        // 正規化: 右+ / 下+ → 必要に応じて呼び出し側で反転
+        onChange(dx / maxR, dy / maxR);
+      }
+      function release() {
+        active = false; pid = null;
+        knob.style.transform = 'translate(0,0)';
+        knob.style.background = 'rgba(255,255,255,0.85)';
+        onChange(0, 0);
+      }
+
+      // Pointer Events（タッチ・マウス両対応）
+      stick.addEventListener('pointerdown', (e) => {
+        active = true; pid = e.pointerId;
+        stick.setPointerCapture(pid);
+        move(e.clientX, e.clientY);
+        e.preventDefault();
+      });
+      stick.addEventListener('pointermove', (e) => {
+        if (!active || e.pointerId !== pid) return;
+        move(e.clientX, e.clientY);
+        e.preventDefault();
+      });
+      const end = (e) => {
+        if (e.pointerId !== pid) return;
+        release();
+        e.preventDefault();
+      };
+      stick.addEventListener('pointerup', end);
+      stick.addEventListener('pointercancel', end);
+      stick.addEventListener('lostpointercapture', () => { if (active) release(); });
+    }
+
+    setupStick('stickLeft', 'knobLeft', (x, y) => {
+      input.lx = x;   // 旋回
+      input.ly = y;   // アーム
+    });
+    setupStick('stickRight', 'knobRight', (x, y) => {
+      input.rx = x;   // バケット
+      input.ry = y;   // ブーム
+    });
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function updateJoints(dt) {
+      // 旋回（左レバー左右）: 左に倒す(x<0)→反時計回り(+Y)
+      joints.swing.value -= input.lx * joints.swing.speed * dt;
+      // 角度ラップ
+      if (joints.swing.value > Math.PI)  joints.swing.value -= Math.PI * 2;
+      if (joints.swing.value < -Math.PI) joints.swing.value += Math.PI * 2;
+
+      // アーム（左レバー上下）: 上に倒す(y<0)→伸ばす(角度を小さく)
+      joints.arm.value = clamp(joints.arm.value + input.ly * joints.arm.speed * dt, joints.arm.min, joints.arm.max);
+
+      // ブーム（右レバー上下）: 上に倒す(y<0)→ブーム上げ(値を小さく=先端が上)
+      joints.boom.value = clamp(joints.boom.value + input.ry * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
+
+      // バケット（右レバー左右）: 右(x>0)→開く(角度小さく), 左→閉じる(掬う)
+      joints.bucket.value = clamp(joints.bucket.value - input.rx * joints.bucket.speed * dt, joints.bucket.min, joints.bucket.max);
+
+      applyJoints();
+    }
+
+    // ===== リサイズ対応 =====
+    function resize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      renderer.domElement.style.width = w + 'px';
+      renderer.domElement.style.height = h + 'px';
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+    resize();
+
+    // ===== メインループ =====
+    const clock = new THREE.Clock();
+    function animate() {
+      const dt = Math.min(clock.getDelta(), 0.05);
+      updateJoints(dt);
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>
