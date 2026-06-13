@@ -142,7 +142,7 @@
     import * as THREE from 'three';
 
     // ===== 色定義 =====
-    const COLOR_BODY   = 0x1B7E86; // コベルコ建機 ブルーグリーン系
+    const COLOR_BODY   = 0x00A3AE; // コベルコ建機 ブルーグリーン（ロゴ背景の明るいティール）
     const COLOR_DARK   = 0x2b2f33; // 履帯 ダークグレー
     const COLOR_DARK2  = 0x3c4146; // やや明るいダークグレー
     const COLOR_CAB    = 0x23262a; // 運転席フレーム 濃いグレー
@@ -456,11 +456,10 @@
     swing.add(counter);
 
     // お尻に KOBELCO の銘板（地=ボディカラー / 文字=白）
-    // 背面(-Z)向きに置くのでテクスチャは左右反転して描く。
-    const kobeTex = makeTextTexture('KOBELCO', '#1B7E86', '#ffffff', true);
+    const kobeTex = makeTextTexture('KOBELCO', '#00A3AE', '#ffffff', false);
     const nameplate = new THREE.Mesh(
       new THREE.PlaneGeometry(3.2, 1.0),
-      new THREE.MeshStandardMaterial({ map: kobeTex, roughness: 0.6 })
+      new THREE.MeshStandardMaterial({ map: kobeTex, roughness: 0.6, side: THREE.DoubleSide })
     );
     nameplate.position.set(0, 1.75, -4.105); // カウンターウェイト背面
     nameplate.rotation.y = Math.PI;          // -Z を向く
@@ -521,51 +520,56 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
+    // アーム先端の継手（ナックル）— ここがバケットのピボット
+    const armTip = mesh(new THREE.BoxGeometry(0.85, 0.85, 0.7), matBody);
+    armTip.position.set(0, 0, ARM_LEN);
+    arm.add(armTip);
 
     // ----- バケット（X軸ピッチで開閉）-----
-    // アーム先端がバケットのピボット。
+    // アーム先端(ナックル)がバケットのピボット。
+    // ピボットを上端(腕との連結点)に置き、本体はすべてピボットより下に吊る。
     const bucket = new THREE.Group();
     bucket.position.set(0, 0, ARM_LEN); // アーム先端
     arm.add(bucket);
 
-    const bucketPin = mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.8, 16), matBody);
+    const bucketPin = mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.95, 16), matBody);
     bucketPin.rotation.z = Math.PI / 2;
     bucket.add(bucketPin);
 
     // バケット形状: 背板＋底板＋側板2枚（ブルーグリーン）
-    // くぼみ(開口)は機体側=-Z を向く。背板は腕側=+Z。
+    // くぼみ(開口)は機体側=-Z を向く。背板は腕側=+Z。上端=ピボット。
     const bucketMat = matBody;
-    const back = mesh(new THREE.BoxGeometry(1.6, 1.3, 0.18), bucketMat);
-    back.position.set(0, -0.4, 0.25);
+    const back = mesh(new THREE.BoxGeometry(1.5, 1.25, 0.18), bucketMat);
+    back.position.set(0, -0.6, 0.15);
     bucket.add(back);
 
-    const bottom = mesh(new THREE.BoxGeometry(1.6, 0.18, 1.3), bucketMat);
-    bottom.position.set(0, -1.0, -0.45);
-    bottom.rotation.x = 0.15;
+    const bottom = mesh(new THREE.BoxGeometry(1.5, 0.18, 1.2), bucketMat);
+    bottom.position.set(0, -1.15, -0.45);
+    bottom.rotation.x = 0.2;
     bucket.add(bottom);
 
-    for (const sx of [-0.8, 0.8]) {
-      const side = mesh(new THREE.BoxGeometry(0.16, 1.2, 1.3), bucketMat);
-      side.position.set(sx, -0.6, -0.3);
+    for (const sx of [-0.75, 0.75]) {
+      const side = mesh(new THREE.BoxGeometry(0.16, 1.15, 1.2), bucketMat);
+      side.position.set(sx, -0.72, -0.28);
       bucket.add(side);
     }
     // 刃先（ツース風）— 機体側(-Z)の開口の縁
     for (let i = -1; i <= 1; i++) {
-      const tooth = mesh(new THREE.BoxGeometry(0.22, 0.18, 0.45), matDark2);
-      tooth.position.set(i * 0.5, -0.95, -1.15);
-      tooth.rotation.x = 0.15;
+      const tooth = mesh(new THREE.BoxGeometry(0.2, 0.18, 0.45), matDark2);
+      tooth.position.set(i * 0.45, -1.12, -1.05);
+      tooth.rotation.x = 0.2;
       bucket.add(tooth);
     }
 
     // 掘削判定用の刃先アンカー（ツースの先端あたり, -Z側）
     const bucketTip = new THREE.Object3D();
-    bucketTip.position.set(0, -1.0, -1.35);
+    bucketTip.position.set(0, -1.18, -1.25);
     bucket.add(bucketTip);
 
     // バケット内の土（積載量に応じて表示・スケール）
     const matSoil = new THREE.MeshStandardMaterial({ color: 0x6f5337, roughness: 1.0 });
-    const soilInBucket = mesh(new THREE.BoxGeometry(1.4, 0.9, 1.15), matSoil);
-    soilInBucket.position.set(0, -0.55, -0.4);
+    const soilInBucket = mesh(new THREE.BoxGeometry(1.3, 0.85, 1.0), matSoil);
+    soilInBucket.position.set(0, -0.72, -0.35);
     soilInBucket.visible = false;
     bucket.add(soilInBucket);
 
@@ -641,10 +645,10 @@
       arm,  new THREE.Vector3(0, 0.55, 1.1),
       { barrelLen: 2.2, barrelR: 0.19, rodR: 0.11 }
     );
-    // バケットシリンダー: アーム上面先端 → バケット背面上部
+    // バケットシリンダー: アーム上面先端 → バケット背面上部(ピボット直上)
     addHydraulic(
       arm,    new THREE.Vector3(0, 0.6, 3.4),
-      bucket, new THREE.Vector3(0, 0.35, 0.15),
+      bucket, new THREE.Vector3(0, 0.2, 0.3),
       { barrelLen: 1.5, barrelR: 0.15, rodR: 0.09 }
     );
 
@@ -658,8 +662,8 @@
       // アーム: ブームに対する折れ角。
       arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.1,    max: 2.4,   speed: 0.9 },
       // バケット: 開閉（掘削/排土）。value大=閉じる, 小=開く。
-      // もっと開けるよう下限を拡大し、閉じすぎてアームに食い込まないよう上限を抑制。
-      bucket: { obj: bucket, axis: 'x', value: 0.2,    min: -1.3,   max: 1.4,   speed: 1.2 },
+      // 開き側を約60°拡大、閉じ側を約60°手前で制限（アームへの食い込み防止）。
+      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -2.35,  max: 0.35,  speed: 1.2 },
     };
 
     function applyJoints() {
