@@ -552,15 +552,15 @@
       boom.add(boomMeshObj);
     }
 
-    // ブーム両側面の KOBELCO 白文字（写真準拠・先端寄り）
+    // ブーム両側面の KOBELCO 白文字（写真準拠・先端寄り・縮小）
     {
       const tz = 4.1, ty = boomCenterY(4.1);
-      const texR = makeTextTexture('KOBELCO', null, '#ffffff', true);  // +x面は鏡像描画で正立
-      const texL = makeTextTexture('KOBELCO', null, '#ffffff', false);
-      const mat = (t) => new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.6 });
-      const txtR = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.5), mat(texR));
+      // 両側面とも鏡像描画にすると正立する
+      const tex = makeTextTexture('KOBELCO', null, '#ffffff', true);
+      const mat = () => new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6 });
+      const txtR = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.4), mat());
       txtR.position.set(0.31, ty, tz); txtR.rotation.y = Math.PI / 2; boom.add(txtR);
-      const txtL = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.5), mat(texL));
+      const txtL = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.4), mat());
       txtL.position.set(-0.31, ty, tz); txtL.rotation.y = -Math.PI / 2; boom.add(txtL);
     }
 
@@ -909,9 +909,8 @@
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
       // アーム: ブームに対する折れ角。伸ばし切り(min)を15°(≈0.26)狭めた。
       arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.4,   speed: 0.9 },
-      // バケット: 開閉（掘削/排土）。value大=閉じる(掬う), 小=開く(排土)。
-      // カタログの稼働範囲に合わせ、掬い側を拡大。
-      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -1.5,   max: 1.0,   speed: 1.2 },
+      // バケット: 開閉。開き側を+45°拡大(min-2.28)、閉じ側を45°手前で制限(max0.22)。
+      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -2.28,  max: 0.22,  speed: 1.2 },
     };
 
     function applyJoints() {
