@@ -334,8 +334,7 @@
       const cv = document.createElement('canvas');
       cv.width = 512; cv.height = 160;
       const ctx = cv.getContext('2d');
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, cv.width, cv.height);
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height); } // bg=null で透明
       if (mirror) { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
       ctx.fillStyle = fg;
       ctx.font = 'bold 110px Arial, sans-serif';
@@ -475,34 +474,40 @@
 
     // オペレータキャブ（左前）: 濃いグレーのフレームに大きなガラス。天端=地上2.98。
     const cab = mesh(new THREE.BoxGeometry(1.02, 1.56, 1.8), matCab);
-    cab.position.set(-0.79, 1.20, 0.6);
+    cab.position.set(0.79, 1.20, 0.6);
     swing.add(cab);
     // 前面ガラス（大きめ）
     const glassFront = mesh(new THREE.BoxGeometry(0.86, 1.1, 0.05), matGlass);
-    glassFront.position.set(-0.79, 1.4, 0.6 + 0.9 + 0.01);
+    glassFront.position.set(0.79, 1.4, 0.6 + 0.9 + 0.01);
     swing.add(glassFront);
     // 外側側面ガラス（大きめ）
     const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.1, 1.5), matGlass);
-    glassSide.position.set(-0.79 - 0.51 - 0.01, 1.4, 0.6);
+    glassSide.position.set(0.79 + 0.51 + 0.01, 1.4, 0.6);
     swing.add(glassSide);
     // 後方側ガラス
     const glassRear = mesh(new THREE.BoxGeometry(0.78, 0.9, 0.05), matGlass);
-    glassRear.position.set(-0.79, 1.35, 0.6 - 0.9 - 0.01);
+    glassRear.position.set(0.79, 1.35, 0.6 - 0.9 - 0.01);
     swing.add(glassRear);
 
     // 排気筒
     const stack = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.55, 12), matDark);
-    stack.position.set(0.7, 1.6, -1.35);
+    stack.position.set(-0.7, 1.6, -1.35);
     swing.add(stack);
 
-    // ブームの取り付け基部（前方中央やや右）— ここがブームのピボット
-    const BOOM_PIVOT = new THREE.Vector3(0.45, 0.55, 1.45);
+    // ブームの取り付け基部（前方中央やや左＝キャブと反対側）— ここがブームのピボット
+    const BOOM_PIVOT = new THREE.Vector3(-0.45, 0.55, 1.45);
     const BOOM_LEN = 5.68; // ブーム長
     const ARM_LEN = 2.94;  // アーム長(図面記載)
-    // ブームフット台座
-    const boomFoot = mesh(new THREE.BoxGeometry(0.9, 0.7, 0.7), matBody);
-    boomFoot.position.set(0.45, 0.45, 1.3);
+    // ブームフット（ブームピボットの台座）＋ブームシリンダー下部の取付ラグ
+    const boomFoot = mesh(new THREE.BoxGeometry(1.1, 0.95, 0.85), matBody);
+    boomFoot.position.set(-0.45, 0.45, 1.35);
     swing.add(boomFoot);
+    // ブームシリンダー下部の取付ブラケット（前方・左右）
+    for (const sgn of [-1, 1]) {
+      const lug = mesh(new THREE.BoxGeometry(0.18, 0.5, 0.45), matBody);
+      lug.position.set(-0.45 + sgn * 0.36, 0.12, 1.72);
+      swing.add(lug);
+    }
 
     // 側面プロファイル(z,y の点列)を幅(width)方向へ押し出して梁を作る。
     // 角は軽くベベルして量産機らしい丸みを出す。
@@ -536,7 +541,7 @@
     // 反り cy = 中央が上, 厚み half = 根元厚め。両端は z 軸上(cy=0)でピボット/先端に一致。
     const BOOM_CURVE = 0.88;
     const boomCenterY = (z) => BOOM_CURVE * Math.sin(Math.PI * z / BOOM_LEN);
-    const boomHalf    = (z) => 0.42 - 0.13 * (z / BOOM_LEN);
+    const boomHalf    = (z) => 0.22 + 0.22 * Math.sin(Math.PI * z / BOOM_LEN); // 中央が太く端が細い
     {
       const N = 12, samples = [];
       for (let i = 0; i <= N; i++) {
@@ -545,6 +550,18 @@
       }
       const boomMeshObj = mesh(beamGeo(beamProfile(samples), 0.5), matBody);
       boom.add(boomMeshObj);
+    }
+
+    // ブーム両側面の KOBELCO 白文字（写真準拠・先端寄り・縮小）
+    {
+      const tz = 4.1, ty = boomCenterY(4.1);
+      // 両側面とも鏡像描画にすると正立する
+      const tex = makeTextTexture('KOBELCO', null, '#ffffff', true);
+      const mat = () => new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6 });
+      const txtR = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.4), mat());
+      txtR.position.set(0.31, ty, tz); txtR.rotation.y = Math.PI / 2; boom.add(txtR);
+      const txtL = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.4), mat());
+      txtL.position.set(-0.31, ty, tz); txtL.rotation.y = -Math.PI / 2; boom.add(txtL);
     }
 
     // ブームのピボット軸（シリンダー, 横向き）
@@ -557,6 +574,12 @@
     const boomBkt = mesh(new THREE.BoxGeometry(0.4, 0.45, 0.7), matBody);
     boomBkt.position.set(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.05, boomBktZ);
     boom.add(boomBkt);
+    // ブームシリンダー上端の取付ブラケット（下面・左右）
+    for (const sgn of [-1, 1]) {
+      const bcb = mesh(new THREE.BoxGeometry(0.16, 0.4, 0.5), matBody);
+      bcb.position.set(sgn * 0.28, boomCenterY(2.5) - boomHalf(2.5) + 0.05, 2.5);
+      boom.add(bcb);
+    }
 
 
     // ----- アーム（X軸ピッチ）-----
@@ -580,35 +603,37 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
-    // アーム基部のシリンダー取付ボス（両側の三角プレート＋ピン）。写真準拠。
-    // シリンダーをアーム上面より高い位置で受け、ビームとの干渉を避ける。
+    // アーム基部のヒール: アーム本体をピボットを越えてブーム側(-z)へ水平気味に
+    // 伸ばしたレバー。丸み(R)のある上面を持ち、後端(ブーム根元側)の頂点に
+    // アームシリンダーが付く（赤スケッチの向き）。
     function makeArmHeel() {
       const sh = new THREE.Shape();
-      sh.moveTo(-0.25, 0.18);  // 後ろ(ブーム側)下
-      sh.lineTo(0.55, 0.18);   // 前(先端側)下
-      sh.lineTo(0.02, 0.86);   // 頂点(ピン位置)
+      sh.moveTo(0.15, 0.32);   // 前上(アーム上面・先端側)
+      sh.lineTo(0.15, -0.30);  // 前下(アーム下面)
+      sh.lineTo(-0.30, -0.16); // 後下
+      sh.lineTo(-0.62, 0.14);  // 後端 下(ブーム側)
+      sh.lineTo(-0.58, 0.34);  // 後端 R(丸み)
+      sh.lineTo(-0.05, 0.42);  // 上面を前へ
       sh.closePath();
-      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false });
+      const g = new THREE.ExtrudeGeometry(sh, {
+        depth: 0.4, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1,
+      });
       g.rotateY(-Math.PI / 2);
-      g.translate(0.06, 0, 0);
+      g.translate(0.2, 0, 0); // X中心へ
       g.computeVertexNormals();
       return g;
     }
-    const heelGeo = makeArmHeel();
-    for (const sx of [-0.15, 0.15]) {
-      const e = mesh(heelGeo, matBody);
-      e.position.x = sx;
-      arm.add(e);
-    }
-    // 取付ピン（左右プレート間を貫通）= アームシリンダー取付点
-    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 12), matDark);
+    const armHeelMesh = mesh(makeArmHeel(), matBody);
+    arm.add(armHeelMesh);
+    // シリンダー取付ピン（ヒール後端＝ブーム根元側）= アームシリンダーの取付点
+    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matDark);
     heelPin.rotation.z = Math.PI / 2;
-    heelPin.position.set(0, 0.86, 0.02);
+    heelPin.position.set(0, 0.24, -0.55);
     arm.add(heelPin);
 
-    // アーム上面のバケットシリンダー取付ブラケット
-    const armBkt = mesh(new THREE.BoxGeometry(0.36, 0.5, 0.6), matBody);
-    armBkt.position.set(0, 0.42, 0.85);
+    // アーム上面のバケットシリンダー取付ブラケット（アームに接する低い位置）
+    const armBkt = mesh(new THREE.BoxGeometry(0.3, 0.28, 0.5), matBody);
+    armBkt.position.set(0, 0.3, 0.95);
     arm.add(armBkt);
 
     // アーム先端の継手（ナックル）— ここがバケットのピボット。さらに細く。
@@ -854,21 +879,23 @@
       }
     }
 
-    // ブームシリンダー: 旋回体前部下 → ブーム下面(反った下端に合わせる)
-    addHydraulic(
-      swing, new THREE.Vector3(0.45, -0.05, 0.75),
-      boom,  new THREE.Vector3(0, boomCenterY(2.2) - boomHalf(2.2) - 0.04, 2.2),
-      { barrelLen: 1.7, barrelR: 0.15, rodR: 0.09 }
-    );
-    // アームシリンダー: ブーム上面ブラケット → アーム基部の三角ボス頂点ピン
+    // ブームシリンダー（左右2本）: 旋回体前部下のラグ → ブーム下面の左右ブラケット
+    for (const sgn of [-1, 1]) {
+      addHydraulic(
+        swing, new THREE.Vector3(-0.45 + sgn * 0.36, 0.05, 1.7),
+        boom,  new THREE.Vector3(sgn * 0.28, boomCenterY(2.5) - boomHalf(2.5) - 0.04, 2.5),
+        { barrelLen: 1.9, barrelR: 0.14, rodR: 0.09 }
+      );
+    }
+    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール後端ピン
     addHydraulic(
       boom, new THREE.Vector3(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.3, boomBktZ),
-      arm,  new THREE.Vector3(0, 0.86, 0.02),
+      arm,  new THREE.Vector3(0, 0.24, -0.55),
       { barrelLen: 1.4, barrelR: 0.13, rodR: 0.08 }
     );
-    // バケットシリンダー: アーム上面ブラケット → H型リンクの結節点(linkNode)
+    // バケットシリンダー: アーム上面（アームに接する低い位置）→ H型リンク結節点
     addHydraulic(
-      arm,      new THREE.Vector3(0, 0.62, 0.85),
+      arm,      new THREE.Vector3(0, 0.36, 0.95),
       linkNode, new THREE.Vector3(0, 0, 0),
       { barrelLen: 1.0, barrelR: 0.11, rodR: 0.07 }
     );
@@ -880,12 +907,10 @@
       swing:  { obj: swing,  axis: 'y', value: 0.0,    min: -Math.PI, max: Math.PI, speed: 0.9, wrap: true },
       // ブーム: 0=ほぼ水平前方。上げると負方向(先端が上)。
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
-      // アーム: ブームに対する折れ角。
-      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.1,    max: 2.4,   speed: 0.9 },
-      // バケット: 開閉（掘削/排土）。value大=閉じる, 小=開く。
-      // 開き側を約60°拡大、閉じ側を約60°手前で制限（アームへの食い込み防止）。
-      // バケット: 開閉。リンク機構が破綻しない範囲に開き側を制限(-1.7≈97°開)。
-      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -1.7,   max: 0.35,  speed: 1.2 },
+      // アーム: ブームに対する折れ角。伸ばし切り(min)を15°(≈0.26)狭めた。
+      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.4,   speed: 0.9 },
+      // バケット: 開閉。開き側を+45°拡大(min-2.28)、閉じ側を45°手前で制限(max0.22)。
+      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -2.28,  max: 0.22,  speed: 1.2 },
     };
 
     function applyJoints() {
