@@ -557,7 +557,7 @@
       const tz = 4.1, ty = boomCenterY(4.1);
       // ブーム中心線の傾き（このzでの dcy/dz）に合わせて文字を傾ける
       const slope = BOOM_CURVE * (Math.PI / BOOM_LEN) * Math.cos(Math.PI * tz / BOOM_LEN);
-      const ang = Math.atan(slope);
+      const ang = -Math.atan(slope); // ブーム接線(底面)と平行になる向き
       const tex = makeTextTexture('KOBELCO', null, '#ffffff', false); // 鏡像なしで両面正立
       for (const sgn of [1, -1]) {
         const pivot = new THREE.Object3D();
