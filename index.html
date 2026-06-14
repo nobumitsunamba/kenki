@@ -215,6 +215,27 @@
     fill.position.set(-18, 12, -20);
     scene.add(fill);
 
+    // ===== 環境マップ（金属塗装の反射用）=====
+    // 空〜地面のグラデを equirect として PMREM 化し、scene.environment に。
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    function makeEnvTexture() {
+      const w = 256, h = 128;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0.0, '#dCEBF7'); // 天頂
+      g.addColorStop(0.48, '#bcd6ea');
+      g.addColorStop(0.52, '#8f8a6a'); // 地平
+      g.addColorStop(1.0, '#6b6150'); // 地面
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+    const envRT = pmrem.fromEquirectangular(makeEnvTexture());
+    scene.environment = envRT.texture;
+
     // ===== 地面（土っぽい手続き的テクスチャ）=====
     function makeGroundTexture() {
       const S = 512;
@@ -317,13 +338,16 @@
     }
 
     // ===== マテリアル =====
-    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.55, metalness: 0.25 });
-    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.9,  metalness: 0.1 });
-    const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.85, metalness: 0.1 });
+    // 車体塗装: 環境マップを反射する金属塗装風（クリアコート感）
+    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.4, metalness: 0.35, envMapIntensity: 0.8 });
+    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.85, metalness: 0.2, envMapIntensity: 0.5 });
+    const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.8,  metalness: 0.2, envMapIntensity: 0.5 });
     // 油圧シリンダーのロッド（クロムメッキ風の光る鋼）
-    const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.2, metalness: 0.9 });
+    const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.18, metalness: 0.95, envMapIntensity: 1.0 });
     // シリンダーのバレル（ボディと同じブルーグリーン）
-    const matBarrel = new THREE.MeshStandardMaterial({ color: COLOR_BODY, roughness: 0.5, metalness: 0.35 });
+    const matBarrel = new THREE.MeshStandardMaterial({ color: COLOR_BODY, roughness: 0.4, metalness: 0.55, envMapIntensity: 0.9 });
+    // 鋼の銀色（手すり・スウォッシュ等）
+    const matSilver = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.35, metalness: 0.8, envMapIntensity: 1.0 });
     // 運転席フレーム（濃いグレー）とガラス
     const matCab   = new THREE.MeshStandardMaterial({ color: COLOR_CAB, roughness: 0.5, metalness: 0.3 });
     const matGlass = new THREE.MeshStandardMaterial({ color: 0xbfe6f2, roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0.55 });
@@ -493,6 +517,81 @@
     const stack = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.55, 12), matDark);
     stack.position.set(-0.7, 1.6, -1.35);
     swing.add(stack);
+
+    // ===== 車体ディテール（ルーバー・手すり・キャブ小物） =====
+    // エンジンフード側面のルーバー（吸排気スリット, 左右両面）
+    for (const sx of [-1.19, 1.29]) {
+      for (let i = 0; i < 7; i++) {
+        const sl = mesh(new THREE.BoxGeometry(0.05, 0.06, 1.4), matDark);
+        sl.position.set(sx, 0.55 + i * 0.085, -1.45);
+        swing.add(sl);
+      }
+    }
+    // デッキ上の手すり（フード後部・左側面の縁）
+    {
+      const postH = 0.5, ry = 1.18;
+      for (const [px, pz] of [[-1.12, -0.45], [-1.12, -1.35], [-1.12, -2.25], [1.22, -2.25]]) {
+        const post = mesh(new THREE.CylinderGeometry(0.03, 0.03, postH, 8), matSilver);
+        post.position.set(px, ry + postH / 2, pz);
+        swing.add(post);
+      }
+      const rail = mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.9, 8), matSilver);
+      rail.rotation.x = Math.PI / 2;
+      rail.position.set(-1.12, ry + postH, -1.35);
+      swing.add(rail);
+      const railRear = mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.4, 8), matSilver);
+      railRear.rotation.z = Math.PI / 2;
+      railRear.position.set(0.05, ry + postH, -2.25);
+      swing.add(railRear);
+    }
+    // キャブ小物（アンテナ・グラブレール・ミラー）。キャブは+x側。
+    {
+      const ant = mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 6), matDark);
+      ant.position.set(1.0, 2.05, -0.05); swing.add(ant);
+      const grab = mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.0, 8), matSilver);
+      grab.position.set(1.31, 1.3, 1.48); swing.add(grab);
+      const stay = mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.32, 6), matDark);
+      stay.rotation.z = Math.PI / 2; stay.position.set(1.46, 1.95, 1.45); swing.add(stay);
+      const mir = mesh(new THREE.BoxGeometry(0.04, 0.22, 0.16), matDark2);
+      mir.position.set(1.6, 1.98, 1.45); swing.add(mir);
+    }
+
+    // ===== デカール・マーキング =====
+    // SK200 バッジ（フード側面・両面）
+    {
+      const skTex = makeTextTexture('SK200', null, '#ffffff', false);
+      for (const [sx, ry] of [[1.30, Math.PI / 2], [-1.18, -Math.PI / 2]]) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.72, 0.26),
+          new THREE.MeshStandardMaterial({ map: skTex, transparent: true, roughness: 0.6 })
+        );
+        m.position.set(sx, 0.62, -1.95); m.rotation.y = ry; swing.add(m);
+      }
+    }
+    // シルバーのスウォッシュ（流線）デカール（フード下側・両面）
+    function makeSwooshTexture() {
+      const w = 512, h = 192;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      ctx.strokeStyle = 'rgba(205,210,216,0.95)'; ctx.lineCap = 'round';
+      for (const [o, lw] of [[0, 30], [46, 15]]) {
+        ctx.lineWidth = lw; ctx.beginPath();
+        ctx.moveTo(20, 150 - o * 0.3);
+        ctx.quadraticCurveTo(230, 35 - o * 0.2, 492, 105 - o * 0.4);
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+    }
+    {
+      const swTex = makeSwooshTexture();
+      for (const [sx, ry] of [[1.30, Math.PI / 2], [-1.18, -Math.PI / 2]]) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.5, 0.55),
+          new THREE.MeshStandardMaterial({ map: swTex, transparent: true, roughness: 0.5, metalness: 0.3 })
+        );
+        m.position.set(sx, 0.7, -0.45); m.rotation.y = ry; swing.add(m);
+      }
+    }
 
     // ブームの取り付け基部（前方中央やや左＝キャブと反対側）— ここがブームのピボット
     const BOOM_PIVOT = new THREE.Vector3(-0.45, 0.55, 1.45);
