@@ -110,6 +110,10 @@
       background: linear-gradient(90deg, #c39a5e, #8a6233);
       transition: width 0.08s linear;
     }
+    #dumpVol {
+      margin-top: 6px; color: #fff; font-size: 13px; font-weight: bold;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
   </style>
 
   <!-- Three.js を importmap で読み込む（ビルド不要） -->
@@ -129,6 +133,7 @@
   <div id="hud">
     <div id="loadLabel">バケット土量</div>
     <div id="loadBar"><div id="loadFill"></div></div>
+    <div id="dumpVol">排土量 0.00 m³</div>
   </div>
 
   <div id="controls">
@@ -352,8 +357,8 @@
     // 運転席フレーム（濃いグレー）とガラス
     const matCab   = new THREE.MeshStandardMaterial({ color: COLOR_CAB, roughness: 0.5, metalness: 0.3 });
     const matGlass = new THREE.MeshStandardMaterial({ color: 0xbfe6f2, roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0.55 });
-    // キャブのガラス（薄いグレー。ソリッドなキャブの上に載せるのでほぼ不透明）
-    const matCabGlass = new THREE.MeshStandardMaterial({ color: 0xd7dcdf, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.92, envMapIntensity: 1.0, side: THREE.DoubleSide });
+    // キャブのガラス（青みがかったグレー。ソリッドなキャブの上に載せるのでほぼ不透明）
+    const matCabGlass = new THREE.MeshStandardMaterial({ color: 0xa9bcc9, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.0, side: THREE.DoubleSide });
 
     // テキストを描いたテクスチャ（看板用）。mirror=true で左右反転して描く
     // （背面向きに配置しても正しく読めるようにするため）。
@@ -524,20 +529,34 @@
     const cab = mesh(makeCabSide(), matCab);
     cab.position.set(CAB_X, CAB_Y, CAB_Z);
     swing.add(cab);
-    // 側面ガラス（左右両面）。ベベル込みのキャブ面の外側に。フレームを残すため面より小さく。
-    for (const sx of [CAB_X + CAB_W / 2 + 0.06, CAB_X - CAB_W / 2 - 0.06]) {
-      const gs = mesh(new THREE.BoxGeometry(0.02, 1.04, 1.45), matCabGlass);
-      gs.position.set(sx, CAB_Y + 0.30, CAB_Z);
+    // 側面ガラス: キャブ側面シルエットをフレーム幅ぶん内側に縮めた窓（前面の傾斜も側面内に収める）
+    function makeCabWindowGeo() {
+      const fw = 0.14; // フレーム幅
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.9 + fw, -0.78 + fw);
+      sh.lineTo(0.9 - fw, -0.78 + fw);
+      sh.lineTo(0.9 - fw, 0.18 - fw * 0.4);
+      sh.lineTo(0.5 - fw * 0.4, 0.78 - fw);
+      sh.lineTo(-0.9 + fw, 0.78 - fw);
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2); g.translate(0.01, 0, 0); g.computeVertexNormals();
+      return g;
+    }
+    const cabWinGeo = makeCabWindowGeo();
+    for (const sx of [CAB_X + CAB_W / 2 + 0.05, CAB_X - CAB_W / 2 - 0.03]) {
+      const gs = mesh(cabWinGeo, matCabGlass);
+      gs.position.set(sx, CAB_Y, CAB_Z);
       swing.add(gs);
     }
-    // 前面ウィンドシールド（上から下まで1枚・傾斜）。前面の外側に。
-    const windshield = mesh(new THREE.BoxGeometry(0.84, 1.12, 0.03), matCabGlass);
-    windshield.position.set(CAB_X, CAB_Y + 0.23, CAB_Z + 0.75);
-    windshield.rotation.x = -0.36; // 前上が後傾(1枚ガラス)
+    // 前面ウィンドシールド（フレームを残して1枚・傾斜）
+    const windshield = mesh(new THREE.BoxGeometry(0.66, 1.0, 0.02), matCabGlass);
+    windshield.position.set(CAB_X, CAB_Y + 0.25, CAB_Z + 0.82);
+    windshield.rotation.x = -0.36;
     swing.add(windshield);
-    // 後面ガラス（見える範囲はすべてガラス）。後面の外側に。
-    const glassRear = mesh(new THREE.BoxGeometry(0.84, 1.2, 0.03), matCabGlass);
-    glassRear.position.set(CAB_X, CAB_Y + 0.22, CAB_Z - 0.9 - 0.06);
+    // 後面ガラス（フレームを残す）
+    const glassRear = mesh(new THREE.BoxGeometry(0.62, 1.0, 0.02), matCabGlass);
+    glassRear.position.set(CAB_X, CAB_Y + 0.18, CAB_Z - 0.9 - 0.04);
     swing.add(glassRear);
 
     // 排気筒
@@ -1235,8 +1254,10 @@
     //  掘削・排土（地形変形＋バケット積載）
     // =========================================================
     const LOAD_CAP   = 1.0;     // バケット容量（正規化）
+    const BUCKET_M3  = 0.8;     // バケット満杯=0.8m³ (SK200 0.8m³級)
     const DIG_RADIUS = 0.7;     // 掘削ブラシ半径(バケット幅相当)
     let   bucketLoad = 0;       // 現在の積載量 0..1
+    let   dumpedTotal = 0;      // 排土量の積算(m³)
     const _tip = new THREE.Vector3();
     let   fieldChanged = false; // この変形で頂点が動いたか
     let   normAccum = 0;        // 法線再計算の間引き用
@@ -1329,6 +1350,9 @@
       } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
         const drop = Math.min(bucketLoad, dt * 0.7);
         bucketLoad -= drop;
+        dumpedTotal += drop * BUCKET_M3; // 落とした土量を積算(m³)
+        const dv = document.getElementById('dumpVol');
+        if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
         changed = pileBrush(_tip.x, _tip.z, drop);
       }
 
