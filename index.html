@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <!-- ホーム画面起動時はフルスクリーン（ツールバー非表示）になる -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>油圧ショベル操作シミュレーター</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -166,6 +170,19 @@
   <script type="module">
     import * as THREE from 'three';
     import { RoundedBoxGeometry } from 'https://unpkg.com/three@0.160.0/examples/jsm/geometries/RoundedBoxGeometry.js';
+
+    // 最初のタッチ/クリックでフルスクリーン化し、ブラウザのツールバー(アドレスバー等)を隠す。
+    // ※ ページ読込直後の自動フルスクリーンはブラウザ仕様で不可（ユーザー操作が必要）。
+    function goFullscreen() {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+      if (req && !(document.fullscreenElement || document.webkitFullscreenElement)) {
+        try { const p = req.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+      }
+      // iOS等フルスクリーン非対応向け: わずかにスクロールしてアドレスバーを縮小
+      window.scrollTo(0, 1);
+    }
+    window.addEventListener('pointerdown', goFullscreen, { once: true });
 
     // ===== 色定義 =====
     const COLOR_BODY   = 0x00A3AE; // コベルコ建機 ブルーグリーン（ロゴ背景の明るいティール）
