@@ -1317,17 +1317,19 @@
     let   fieldChanged = false; // この変形で頂点が動いたか
     let   normAccum = 0;        // 法線再計算の間引き用
 
-    // 刃先まわりの頂点を tipY まで下げ、削った分を積載量へ
-    function digBrush(cx, cz, tipY, dt) {
-      const target = Math.max(tipY, DIG_MIN);
+    // 刃先フットプリントの頂点を薄く削り取り、削った"体積"を積載へ（体積整合）。
+    // 刃先セルの高さに依らず、その場の表土を削るので山の頂上でも掬える。
+    function digBrush(cx, cz, dt) {
       const rad = Math.ceil(DIG_RADIUS / CELL);
       const ixc = Math.round((cx + FIELD_HW) / CELL);
       const izc = Math.round((FIELD_HW + cz) / CELL);
-      const rate = 3.2 * dt; // 1フレームの最大降下量
+      const cutRate = 0.6 * dt;                 // 1フレームの最大掘り下げ
+      const volCell = CELL * CELL;
+      let remM3 = (LOAD_CAP - bucketLoad) * BUCKET_M3; // 残容量(m³)
       let changed = false;
       for (let dz = -rad; dz <= rad; dz++) {
         for (let dx = -rad; dx <= rad; dx++) {
-          if (bucketLoad >= LOAD_CAP) return changed;
+          if (remM3 <= 0) return changed;
           const ix = ixc + dx, iy = izc + dz;
           if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) continue;
           const wx = ix * CELL - FIELD_HW;
@@ -1336,28 +1338,32 @@
           if (d > DIG_RADIUS) continue;
           const idx = iy * (FIELD_SEG + 1) + ix;
           const h = fieldPos.getY(idx);
-          if (h <= target + 0.001) continue;
+          if (h <= DIG_MIN + 0.001) continue;
           const fall = 1 - d / DIG_RADIUS;
-          const lower = Math.min(h - target, rate * (0.4 + 0.6 * fall));
-          if (lower <= 0) continue;
-          const nh = h - lower;
+          let cut = Math.min(cutRate * (0.4 + 0.6 * fall), h - DIG_MIN);
+          if (cut * volCell > remM3) cut = remM3 / volCell;
+          if (cut <= 0.0001) continue;
+          const nh = h - cut;
           fieldPos.setY(idx, nh);
           setVertColor(idx, nh);
-          bucketLoad = Math.min(LOAD_CAP, bucketLoad + lower * 0.16);
+          const v = cut * volCell;
+          bucketLoad = Math.min(LOAD_CAP, bucketLoad + v / BUCKET_M3);
+          remM3 -= v;
           changed = true;
         }
       }
       return changed;
     }
 
-    // 刃先直下に盛土（排土）
-    function pileBrush(cx, cz, amount) {
+    // 刃先直下に体積 volM3 を盛土（排土）。重み付けで体積保存的に分配。
+    function pileBrush(cx, cz, volM3) {
       const R = DIG_RADIUS + 0.5;
       const rad = Math.ceil(R / CELL);
       const ixc = Math.round((cx + FIELD_HW) / CELL);
       const izc = Math.round((FIELD_HW + cz) / CELL);
-      const rise = amount * 2.2;
-      let changed = false;
+      const volCell = CELL * CELL;
+      const cells = [];
+      let S = 0;
       for (let dz = -rad; dz <= rad; dz++) {
         for (let dx = -rad; dx <= rad; dx++) {
           const ix = ixc + dx, iy = izc + dz;
@@ -1366,15 +1372,21 @@
           const wz = iy * CELL - FIELD_HW;
           const d = Math.hypot(wx - cx, wz - cz);
           if (d > R) continue;
-          const idx = iy * (FIELD_SEG + 1) + ix;
-          const h = fieldPos.getY(idx);
-          const fall = 1 - d / R;
-          const nh = Math.min(PILE_MAX, h + rise * fall * fall);
-          if (nh - h < 0.0005) continue;
-          fieldPos.setY(idx, nh);
-          setVertColor(idx, nh);
-          changed = true;
+          const w = 1 - d / R, ww = w * w;
+          S += ww * volCell;
+          cells.push([iy * (FIELD_SEG + 1) + ix, ww]);
         }
+      }
+      if (S <= 0) return false;
+      const peak = volM3 / S;
+      let changed = false;
+      for (const [idx, ww] of cells) {
+        const h = fieldPos.getY(idx);
+        const nh = Math.min(PILE_MAX, h + peak * ww);
+        if (nh - h < 0.0002) continue;
+        fieldPos.setY(idx, nh);
+        setVertColor(idx, nh);
+        changed = true;
       }
       return changed;
     }
@@ -1401,16 +1413,16 @@
 
       let changed = false;
       if (contacting && bucketLoad < LOAD_CAP && !isOpen) {
-        // 刃先が地表付近〜地中: 地表から薄く削り取りつつ、深ければ刃先まで掘る。
-        const target = Math.min(_tip.y, groundH - 0.03);
-        changed = digBrush(_tip.x, _tip.z, target, dt);
+        // 刃先接触中はフットプリントの表土を削り取り、体積を積載（山頂でも掬える）。
+        changed = digBrush(_tip.x, _tip.z, dt);
       } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
         const drop = Math.min(bucketLoad, dt * 0.7);
         bucketLoad -= drop;
-        dumpedTotal += drop * BUCKET_M3; // 落とした土量を積算(m³)
+        const dropM3 = drop * BUCKET_M3;
+        dumpedTotal += dropM3; // 落とした土量を積算(m³)
         const dv = document.getElementById('dumpVol');
         if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
-        changed = pileBrush(_tip.x, _tip.z, drop);
+        changed = pileBrush(_tip.x, _tip.z, dropM3);
       }
 
       updateSoilVisual();
