@@ -1352,6 +1352,46 @@
     let   fieldChanged = false; // この変形で頂点が動いたか
     let   normAccum = 0;        // 法線再計算の間引き用
 
+    // ===== 排土時に落ちる土砂パーティクル（プール式 Points）=====
+    const NP = 140;
+    const partPos = new Float32Array(NP * 3);
+    const partVel = [], partLife = new Float32Array(NP);
+    for (let i = 0; i < NP; i++) { partVel.push(new THREE.Vector3()); partPos[i * 3 + 1] = -9999; }
+    const partGeo = new THREE.BufferGeometry();
+    partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+    const partMat = new THREE.PointsMaterial({ color: 0x6f5337, size: 0.22, sizeAttenuation: true });
+    const soilParticles = new THREE.Points(partGeo, partMat);
+    soilParticles.frustumCulled = false;
+    scene.add(soilParticles);
+    let partHead = 0;
+    function spawnSoil(x, y, z, n) {
+      for (let k = 0; k < n; k++) {
+        const i = partHead; partHead = (partHead + 1) % NP;
+        partPos[i * 3]     = x + (Math.random() - 0.5) * 0.4;
+        partPos[i * 3 + 1] = y - Math.random() * 0.2;
+        partPos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.4;
+        partVel[i].set((Math.random() - 0.5) * 0.8, -0.4 - Math.random() * 0.6, (Math.random() - 0.5) * 0.8);
+        partLife[i] = 1.4 + Math.random() * 0.6;
+      }
+    }
+    function updateSoilParticles(dt) {
+      let dirty = false;
+      for (let i = 0; i < NP; i++) {
+        if (partLife[i] <= 0) continue;
+        dirty = true;
+        partLife[i] -= dt;
+        partVel[i].y -= 9.8 * dt; // 重力
+        partPos[i * 3]     += partVel[i].x * dt;
+        partPos[i * 3 + 1] += partVel[i].y * dt;
+        partPos[i * 3 + 2] += partVel[i].z * dt;
+        const gh = heightAtWorld(partPos[i * 3], partPos[i * 3 + 2]);
+        if (partLife[i] <= 0 || partPos[i * 3 + 1] <= gh) {
+          partLife[i] = 0; partPos[i * 3 + 1] = -9999; // 地面到達で消去
+        }
+      }
+      if (dirty) partGeo.attributes.position.needsUpdate = true;
+    }
+
     // 刃先フットプリントの頂点を薄く削り取り、削った"体積"を積載へ（体積整合）。
     // 刃先セルの高さに依らず、その場の表土を削るので山の頂上でも掬える。
     function digBrush(cx, cz, dt) {
@@ -1458,8 +1498,10 @@
         const dv = document.getElementById('dumpVol');
         if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
         changed = pileBrush(_tip.x, _tip.z, dropM3);
+        spawnSoil(_tip.x, _tip.y, _tip.z, 3); // 落ちる土砂
       }
 
+      updateSoilParticles(dt);
       updateSoilVisual();
 
       if (changed) {
