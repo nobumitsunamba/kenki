@@ -565,14 +565,14 @@
     arm.position.set(0, 0, BOOM_LEN); // ブーム先端
     boom.add(arm);
 
-    const armHalf = (z) => 0.34 - 0.11 * (z / ARM_LEN);
+    const armHalf = (z) => 0.36 - 0.20 * (z / ARM_LEN);
     {
       const N = 8, samples = [];
       for (let i = 0; i <= N; i++) {
         const z = (i / N) * ARM_LEN;
         samples.push([z, 0, armHalf(z)]);
       }
-      const armMeshObj = mesh(beamGeo(beamProfile(samples), 0.42), matBody);
+      const armMeshObj = mesh(beamGeo(beamProfile(samples), 0.38), matBody);
       arm.add(armMeshObj);
     }
 
@@ -590,8 +590,8 @@
     armBkt.position.set(0, 0.42, 0.85);
     arm.add(armBkt);
 
-    // アーム先端の継手（ナックル）— ここがバケットのピボット
-    const armTip = mesh(new THREE.BoxGeometry(0.6, 0.6, 0.45), matBody);
+    // アーム先端の継手（ナックル）— ここがバケットのピボット。細めに。
+    const armTip = mesh(new THREE.BoxGeometry(0.46, 0.42, 0.4), matBody);
     armTip.position.set(0, 0, ARM_LEN);
     arm.add(armTip);
 
