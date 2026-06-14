@@ -565,7 +565,7 @@
     arm.position.set(0, 0, BOOM_LEN); // ブーム先端
     boom.add(arm);
 
-    const armHalf = (z) => 0.36 - 0.20 * (z / ARM_LEN);
+    const armHalf = (z) => 0.36 - 0.24 * (z / ARM_LEN);
     {
       const N = 8, samples = [];
       for (let i = 0; i <= N; i++) {
@@ -590,8 +590,8 @@
     armBkt.position.set(0, 0.42, 0.85);
     arm.add(armBkt);
 
-    // アーム先端の継手（ナックル）— ここがバケットのピボット。細めに。
-    const armTip = mesh(new THREE.BoxGeometry(0.46, 0.42, 0.4), matBody);
+    // アーム先端の継手（ナックル）— ここがバケットのピボット。さらに細く。
+    const armTip = mesh(new THREE.BoxGeometry(0.42, 0.38, 0.38), matBody);
     armTip.position.set(0, 0, ARM_LEN);
     arm.add(armTip);
 
@@ -780,8 +780,9 @@
       _p1.copy(_p1w); arm.worldToLocal(_p1);
       _p2.copy(_p2w); arm.worldToLocal(_p2);
       if (!linkInit) {
-        // 初期姿勢から各リンク長を確定（結節点をアーム上面より上に置く）
-        prevNy = (_p1.y + _p2.y) / 2 + 0.7;
+        // 初期姿勢から各リンク長を確定。結節点を低めに置きコンパクトな
+        // 折れ形状（アイドラ短・パワー長）にする（カタログ/赤スケッチ準拠）。
+        prevNy = (_p1.y + _p2.y) / 2 + 0.4;
         prevNz = (_p1.z + _p2.z) / 2;
         L_idler = Math.hypot(prevNy - _p1.y, prevNz - _p1.z);
         L_power = Math.hypot(prevNy - _p2.y, prevNz - _p2.z);
