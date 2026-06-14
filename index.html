@@ -580,30 +580,29 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
-    // アーム基部のシリンダー取付ボス（両側の三角プレート＋ピン）。写真準拠。
-    // シリンダーをアーム上面より高い位置で受け、ビームとの干渉を避ける。
+    // アーム基部のヒール: アーム本体をピボットを越えてブーム側(-z)へ伸ばした
+    // レバー。その先端にアームシリンダーが付く（写真の赤枠の構造）。
     function makeArmHeel() {
       const sh = new THREE.Shape();
-      sh.moveTo(-0.25, 0.18);  // 後ろ(ブーム側)下
-      sh.lineTo(0.55, 0.18);   // 前(先端側)下
-      sh.lineTo(0.02, 0.86);   // 頂点(ピン位置)
+      sh.moveTo(0.15, 0.30);   // 前上(アーム基部の上面)
+      sh.lineTo(0.15, -0.32);  // 前下
+      sh.lineTo(-0.42, 0.05);  // 後下
+      sh.lineTo(-0.5, 0.55);   // 後上(シリンダー取付端)
       sh.closePath();
-      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false });
+      const g = new THREE.ExtrudeGeometry(sh, {
+        depth: 0.4, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1,
+      });
       g.rotateY(-Math.PI / 2);
-      g.translate(0.06, 0, 0);
+      g.translate(0.2, 0, 0); // X中心へ
       g.computeVertexNormals();
       return g;
     }
-    const heelGeo = makeArmHeel();
-    for (const sx of [-0.15, 0.15]) {
-      const e = mesh(heelGeo, matBody);
-      e.position.x = sx;
-      arm.add(e);
-    }
-    // 取付ピン（左右プレート間を貫通）= アームシリンダー取付点
-    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 12), matDark);
+    const armHeelMesh = mesh(makeArmHeel(), matBody);
+    arm.add(armHeelMesh);
+    // シリンダー取付ピン（ヒール先端）= アームシリンダーの取付点
+    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matDark);
     heelPin.rotation.z = Math.PI / 2;
-    heelPin.position.set(0, 0.86, 0.02);
+    heelPin.position.set(0, 0.5, -0.46);
     arm.add(heelPin);
 
     // アーム上面のバケットシリンダー取付ブラケット
@@ -860,10 +859,10 @@
       boom,  new THREE.Vector3(0, boomCenterY(2.2) - boomHalf(2.2) - 0.04, 2.2),
       { barrelLen: 1.7, barrelR: 0.15, rodR: 0.09 }
     );
-    // アームシリンダー: ブーム上面ブラケット → アーム基部の三角ボス頂点ピン
+    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール先端ピン
     addHydraulic(
       boom, new THREE.Vector3(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.3, boomBktZ),
-      arm,  new THREE.Vector3(0, 0.86, 0.02),
+      arm,  new THREE.Vector3(0, 0.5, -0.46),
       { barrelLen: 1.4, barrelR: 0.13, rodR: 0.08 }
     );
     // バケットシリンダー: アーム上面ブラケット → H型リンクの結節点(linkNode)
