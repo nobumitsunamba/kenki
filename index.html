@@ -362,7 +362,7 @@
       if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height); } // bg=null で透明
       if (mirror) { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
       ctx.fillStyle = fg;
-      ctx.font = 'bold 110px Arial, sans-serif';
+      ctx.font = 'bold 99px Arial, sans-serif'; // 端文字が切れないよう10%縮小
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, cv.width / 2, cv.height / 2 + 6);
@@ -501,21 +501,39 @@
     nameplate.rotation.y = Math.PI;          // -Z を向く
     swing.add(nameplate);
 
-    // オペレータキャブ（左前）: 濃いグレーのフレームに大きなガラス。天端=地上2.98。
-    const cab = mesh(rbox(1.02, 1.56, 1.8, 0.07), matCab);
-    cab.position.set(0.79, 1.20, 0.6);
+    // オペレータキャブ（左前）: 側面シルエットを実機に寄せる。前上にウィンドシールド傾斜。
+    const CAB_W = 1.02, CAB_X = 0.79, CAB_Y = 1.20, CAB_Z = 0.6;
+    function makeCabSide() {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.9, -0.78);  // 後下
+      sh.lineTo(0.9, -0.78);   // 前下
+      sh.lineTo(0.9, 0.18);    // 前(下部は垂直)
+      sh.lineTo(0.5, 0.78);    // ウィンドシールド傾斜 → ルーフ前
+      sh.lineTo(-0.9, 0.78);   // ルーフ
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, {
+        depth: CAB_W, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1,
+      });
+      g.rotateY(-Math.PI / 2);
+      g.translate(CAB_W / 2, 0, 0);
+      g.computeVertexNormals();
+      return g;
+    }
+    const cab = mesh(makeCabSide(), matCab);
+    cab.position.set(CAB_X, CAB_Y, CAB_Z);
     swing.add(cab);
-    // 前面ガラス（大きめ）
-    const glassFront = mesh(new THREE.BoxGeometry(0.86, 1.1, 0.05), matGlass);
-    glassFront.position.set(0.79, 1.4, 0.6 + 0.9 + 0.01);
-    swing.add(glassFront);
-    // 外側側面ガラス（大きめ）
-    const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.1, 1.5), matGlass);
-    glassSide.position.set(0.79 + 0.51 + 0.01, 1.4, 0.6);
+    // 側面ガラス（外側+x, 大きめ）
+    const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.0, 1.5), matGlass);
+    glassSide.position.set(CAB_X + CAB_W / 2 + 0.01, CAB_Y + 0.25, CAB_Z);
     swing.add(glassSide);
-    // 後方側ガラス
-    const glassRear = mesh(new THREE.BoxGeometry(0.78, 0.9, 0.05), matGlass);
-    glassRear.position.set(0.79, 1.35, 0.6 - 0.9 - 0.01);
+    // ウィンドシールド（前面・傾斜）
+    const windshield = mesh(new THREE.BoxGeometry(0.92, 0.78, 0.05), matGlass);
+    windshield.position.set(CAB_X, CAB_Y + 0.48, CAB_Z + 0.7);
+    windshield.rotation.x = -0.64; // 前上が後傾
+    swing.add(windshield);
+    // 後面ガラス
+    const glassRear = mesh(new THREE.BoxGeometry(0.86, 0.8, 0.05), matGlass);
+    glassRear.position.set(CAB_X, CAB_Y + 0.2, CAB_Z - 0.9 - 0.01);
     swing.add(glassRear);
 
     // 排気筒
@@ -1021,8 +1039,8 @@
       swing:  { obj: swing,  axis: 'y', value: 0.0,    min: -Math.PI, max: Math.PI, speed: 0.9, wrap: true },
       // ブーム: 0=ほぼ水平前方。上げると負方向(先端が上)。
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
-      // アーム: ブームに対する折れ角。伸ばし切り(min)を15°(≈0.26)狭めた。
-      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.4,   speed: 0.9 },
+      // アーム: ブームに対する折れ角。伸ばし切り(min)を15°狭め、縮め(max)を15°拡大。
+      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.66,  speed: 0.9 },
       // バケット: 開閉。開き側を+45°拡大(min-2.28)、閉じ側を45°手前で制限(max0.22)。
       bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -2.28,  max: 0.22,  speed: 1.2 },
     };
