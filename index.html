@@ -615,14 +615,28 @@
         swing.add(sl);
       }
     }
-    // 本体上部の黒いメッシュ（側面メッシュと同じz幅1.4、厚み0.2m）。
+    // 本体上部の板金メッシュカバー（高さ0.1m、スリット入り）。側面メッシュと同じz幅1.4。
     {
-      const n = 9, top = 1.18; // フード上面
+      const top = 1.18, H = 0.1, xw = 1.9;       // フード上面 / カバー高さ / 幅
+      const zc = SIDE_MESH_ZC, zlen = SIDE_MESH_ZLEN;
+      const slatW = 0.1, gap = 0.055, period = slatW + gap;
+      const n = Math.floor(zlen / period);
       for (let i = 0; i < n; i++) {
-        const z = SIDE_MESH_ZC - SIDE_MESH_ZLEN / 2 + SIDE_MESH_ZLEN * (i / (n - 1));
-        const fin = mesh(new THREE.BoxGeometry(1.9, 0.2, 0.04), matDark);
-        fin.position.set(0.05, top + 0.1, z); // 厚み0.2m(上面から+0.2)
-        swing.add(fin);
+        const z = zc - zlen / 2 + period * (i + 0.5);
+        const slat = mesh(new THREE.BoxGeometry(xw, H, slatW), matDark); // 板金(スリット間)
+        slat.position.set(0.05, top + H / 2, z);
+        swing.add(slat);
+      }
+      // カバーの縁(前後・左右の枠)
+      for (const sx of [-xw / 2, xw / 2]) {
+        const side = mesh(new THREE.BoxGeometry(0.05, H, zlen), matDark);
+        side.position.set(0.05 + sx, top + H / 2, zc);
+        swing.add(side);
+      }
+      for (const dz of [-zlen / 2, zlen / 2]) {
+        const end = mesh(new THREE.BoxGeometry(xw + 0.05, H, 0.05), matDark);
+        end.position.set(0.05, top + H / 2, zc + dz);
+        swing.add(end);
       }
     }
     // キャブ小物（アンテナ・グラブレール・ミラー）。キャブは+x側。
