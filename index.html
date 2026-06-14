@@ -580,10 +580,31 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
-    // アーム基部のヒール（隆起）— アームシリンダーの取付点を持ち上げる
-    const armHeel = mesh(new THREE.BoxGeometry(0.38, 0.72, 0.55), matBody);
-    armHeel.position.set(0, 0.32, 0.08);
-    arm.add(armHeel);
+    // アーム基部のシリンダー取付ボス（両側の三角プレート＋ピン）。写真準拠。
+    // シリンダーをアーム上面より高い位置で受け、ビームとの干渉を避ける。
+    function makeArmHeel() {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.25, 0.18);  // 後ろ(ブーム側)下
+      sh.lineTo(0.55, 0.18);   // 前(先端側)下
+      sh.lineTo(0.02, 0.86);   // 頂点(ピン位置)
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2);
+      g.translate(0.06, 0, 0);
+      g.computeVertexNormals();
+      return g;
+    }
+    const heelGeo = makeArmHeel();
+    for (const sx of [-0.15, 0.15]) {
+      const e = mesh(heelGeo, matBody);
+      e.position.x = sx;
+      arm.add(e);
+    }
+    // 取付ピン（左右プレート間を貫通）= アームシリンダー取付点
+    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 12), matDark);
+    heelPin.rotation.z = Math.PI / 2;
+    heelPin.position.set(0, 0.86, 0.02);
+    arm.add(heelPin);
 
     // アーム上面のバケットシリンダー取付ブラケット
     const armBkt = mesh(new THREE.BoxGeometry(0.36, 0.5, 0.6), matBody);
@@ -839,10 +860,10 @@
       boom,  new THREE.Vector3(0, boomCenterY(2.2) - boomHalf(2.2) - 0.04, 2.2),
       { barrelLen: 1.7, barrelR: 0.15, rodR: 0.09 }
     );
-    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール上端
+    // アームシリンダー: ブーム上面ブラケット → アーム基部の三角ボス頂点ピン
     addHydraulic(
       boom, new THREE.Vector3(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.3, boomBktZ),
-      arm,  new THREE.Vector3(0, 0.58, 0.08),
+      arm,  new THREE.Vector3(0, 0.86, 0.02),
       { barrelLen: 1.4, barrelR: 0.13, rodR: 0.08 }
     );
     // バケットシリンダー: アーム上面ブラケット → H型リンクの結節点(linkNode)
