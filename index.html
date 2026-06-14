@@ -549,11 +549,14 @@
       gs.position.set(sx, CAB_Y, CAB_Z);
       swing.add(gs);
     }
-    // 前面ウィンドシールド（フレームを残して1枚・傾斜）
-    const windshield = mesh(new THREE.BoxGeometry(0.66, 1.0, 0.02), matCabGlass);
-    windshield.position.set(CAB_X, CAB_Y + 0.25, CAB_Z + 0.82);
-    windshield.rotation.x = -0.36;
-    swing.add(windshield);
+    // 前面ウィンドシールド: 下部(垂直)＋上部(傾斜)の2枚。境目はフレームなしで連続。
+    const wsLower = mesh(new THREE.BoxGeometry(0.66, 0.52, 0.02), matCabGlass);
+    wsLower.position.set(CAB_X, CAB_Y - 0.04, CAB_Z + 0.95);
+    swing.add(wsLower);
+    const wsUpper = mesh(new THREE.BoxGeometry(0.66, 0.74, 0.02), matCabGlass);
+    wsUpper.position.set(CAB_X, CAB_Y + 0.5, CAB_Z + 0.72);
+    wsUpper.rotation.x = -0.6;
+    swing.add(wsUpper);
     // 後面ガラス（フレームを残す）
     const glassRear = mesh(new THREE.BoxGeometry(0.62, 1.0, 0.02), matCabGlass);
     glassRear.position.set(CAB_X, CAB_Y + 0.18, CAB_Z - 0.9 - 0.04);
@@ -1339,14 +1342,16 @@
     function updateDigging(dt) {
       bucketTip.getWorldPosition(_tip);
       const groundH = heightAtWorld(_tip.x, _tip.z);
-      const penetrating = _tip.y < groundH - 0.02;
-      // バケット: value大=閉じる(掬う) / 小=開く(排土)。
-      // 可動域[-2.35..0.35]なので、十分に開いた時だけ排土と判定する。
+      // 刃先が地表に接触(わずかに上でも可)していれば掬えるよう判定を緩める。
+      const contacting = _tip.y < groundH + 0.12;
+      // バケット: value大=閉じる(掬う) / 小=開く(排土)。十分に開いた時だけ排土。
       const isOpen = joints.bucket.value < -1.3;
 
       let changed = false;
-      if (penetrating && bucketLoad < LOAD_CAP && !isOpen) {
-        changed = digBrush(_tip.x, _tip.z, _tip.y, dt);
+      if (contacting && bucketLoad < LOAD_CAP && !isOpen) {
+        // 刃先が地表付近〜地中: 地表から薄く削り取りつつ、深ければ刃先まで掘る。
+        const target = Math.min(_tip.y, groundH - 0.03);
+        changed = digBrush(_tip.x, _tip.z, target, dt);
       } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
         const drop = Math.min(bucketLoad, dt * 0.7);
         bucketLoad -= drop;
