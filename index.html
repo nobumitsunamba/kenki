@@ -673,10 +673,10 @@
     arm.add(idlerBracket);
 
     const bucketLug = new THREE.Object3D();
-    bucketLug.position.set(0, 0.36, 0.26);
+    bucketLug.position.set(0, -0.5, 0.22); // バケット背面の下側(底寄り)。カタログ準拠。
     bucket.add(bucketLug);
-    const lugMesh = mesh(new THREE.BoxGeometry(0.3, 0.45, 0.2), matBody);
-    lugMesh.position.set(0, 0.16, 0.24);
+    const lugMesh = mesh(new THREE.BoxGeometry(0.3, 0.4, 0.26), matBody);
+    lugMesh.position.set(0, -0.45, 0.16);
     bucket.add(lugMesh);
 
     const linkNode = new THREE.Object3D(); // ロッド端＝2リンクの結節点(scene座標)
