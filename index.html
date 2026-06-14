@@ -529,32 +529,42 @@
     const cab = mesh(makeCabSide(), matCab);
     cab.position.set(CAB_X, CAB_Y, CAB_Z);
     swing.add(cab);
-    // 側面ガラス: キャブ側面シルエットをフレーム幅ぶん内側に縮めた窓（前面の傾斜も側面内に収める）
-    function makeCabWindowGeo() {
-      const fw = 0.14; // フレーム幅
+    // 側面ガラス: キャブ側面シルエットを内側に縮めた窓。中央に縦フレームを通して前後2枚に分割。
+    const fw = 0.14, mh = 0.07; // フレーム幅 / 中央縦フレーム半幅
+    function makeCabWindowRear() {
       const sh = new THREE.Shape();
       sh.moveTo(-0.9 + fw, -0.78 + fw);
-      sh.lineTo(0.9 - fw, -0.78 + fw);
-      sh.lineTo(0.9 - fw, 0.18 - fw * 0.4);
-      sh.lineTo(0.5 - fw * 0.4, 0.78 - fw);
+      sh.lineTo(-mh, -0.78 + fw);
+      sh.lineTo(-mh, 0.78 - fw);
       sh.lineTo(-0.9 + fw, 0.78 - fw);
       sh.closePath();
       const g = new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false });
       g.rotateY(-Math.PI / 2); g.translate(0.01, 0, 0); g.computeVertexNormals();
       return g;
     }
-    const cabWinGeo = makeCabWindowGeo();
-    for (const sx of [CAB_X + CAB_W / 2 + 0.05, CAB_X - CAB_W / 2 - 0.03]) {
-      const gs = mesh(cabWinGeo, matCabGlass);
-      gs.position.set(sx, CAB_Y, CAB_Z);
-      swing.add(gs);
+    function makeCabWindowFront() {
+      const sh = new THREE.Shape();
+      sh.moveTo(mh, -0.78 + fw);
+      sh.lineTo(0.9 - fw, -0.78 + fw);
+      sh.lineTo(0.9 - fw, 0.18 - fw * 0.4);
+      sh.lineTo(0.5 - fw * 0.4, 0.78 - fw);
+      sh.lineTo(mh, 0.78 - fw);
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2); g.translate(0.01, 0, 0); g.computeVertexNormals();
+      return g;
     }
-    // 前面ウィンドシールド: 下部(垂直)＋上部(傾斜)の2枚。境目はフレームなしで連続。
-    const wsLower = mesh(new THREE.BoxGeometry(0.66, 0.52, 0.02), matCabGlass);
-    wsLower.position.set(CAB_X, CAB_Y - 0.04, CAB_Z + 0.95);
+    const cabWinRear = makeCabWindowRear(), cabWinFront = makeCabWindowFront();
+    for (const sx of [CAB_X + CAB_W / 2 + 0.05, CAB_X - CAB_W / 2 - 0.03]) {
+      const gr = mesh(cabWinRear, matCabGlass); gr.position.set(sx, CAB_Y, CAB_Z); swing.add(gr);
+      const gf = mesh(cabWinFront, matCabGlass); gf.position.set(sx, CAB_Y, CAB_Z); swing.add(gf);
+    }
+    // 前面ウィンドシールド: 下部(垂直)＋上部(傾斜)の2枚。境目フレームなしで連続。上下端のみフレーム。
+    const wsLower = mesh(new THREE.BoxGeometry(0.66, 0.84, 0.02), matCabGlass);
+    wsLower.position.set(CAB_X, CAB_Y - 0.22, CAB_Z + 0.95);
     swing.add(wsLower);
-    const wsUpper = mesh(new THREE.BoxGeometry(0.66, 0.74, 0.02), matCabGlass);
-    wsUpper.position.set(CAB_X, CAB_Y + 0.5, CAB_Z + 0.72);
+    const wsUpper = mesh(new THREE.BoxGeometry(0.66, 0.66, 0.02), matCabGlass);
+    wsUpper.position.set(CAB_X, CAB_Y + 0.455, CAB_Z + 0.71);
     wsUpper.rotation.x = -0.6;
     swing.add(wsUpper);
     // 後面ガラス（フレームを残す）
@@ -784,7 +794,7 @@
     const armHeelMesh = mesh(makeArmHeel(), matBody);
     arm.add(armHeelMesh);
     // シリンダー取付ピン（ヒール後端＝ブーム根元側）= アームシリンダーの取付点
-    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matDark);
+    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matBody);
     heelPin.rotation.z = Math.PI / 2;
     heelPin.position.set(0, 0.24, -0.55);
     arm.add(heelPin);
