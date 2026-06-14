@@ -580,17 +580,17 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
-    // アーム基部のヒール: アーム本体をブーム側へ伸ばし、丸み(R)のある上向きの
-    // 山にする。頂点(ブーム根元側＝やや後方上)にアームシリンダーが付く。
+    // アーム基部のヒール: アーム本体をピボットを越えてブーム側(-z)へ水平気味に
+    // 伸ばしたレバー。丸み(R)のある上面を持ち、後端(ブーム根元側)の頂点に
+    // アームシリンダーが付く（赤スケッチの向き）。
     function makeArmHeel() {
       const sh = new THREE.Shape();
-      sh.moveTo(0.22, 0.28);   // 前上(アーム上面・先端側)
-      sh.lineTo(0.10, -0.34);  // 前下
-      sh.lineTo(-0.42, -0.02); // 後下
-      sh.lineTo(-0.50, 0.34);  // 後ろ立ち上がり
-      sh.lineTo(-0.34, 0.62);  // R(丸み)
-      sh.lineTo(-0.12, 0.72);  // 頂点(シリンダー取付・ブーム根元側)
-      sh.lineTo(0.14, 0.52);   // 前へ戻る
+      sh.moveTo(0.15, 0.32);   // 前上(アーム上面・先端側)
+      sh.lineTo(0.15, -0.30);  // 前下(アーム下面)
+      sh.lineTo(-0.30, -0.16); // 後下
+      sh.lineTo(-0.62, 0.14);  // 後端 下(ブーム側)
+      sh.lineTo(-0.58, 0.34);  // 後端 R(丸み)
+      sh.lineTo(-0.05, 0.42);  // 上面を前へ
       sh.closePath();
       const g = new THREE.ExtrudeGeometry(sh, {
         depth: 0.4, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1,
@@ -602,10 +602,10 @@
     }
     const armHeelMesh = mesh(makeArmHeel(), matBody);
     arm.add(armHeelMesh);
-    // シリンダー取付ピン（ヒール頂点）= アームシリンダーの取付点
+    // シリンダー取付ピン（ヒール後端＝ブーム根元側）= アームシリンダーの取付点
     const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matDark);
     heelPin.rotation.z = Math.PI / 2;
-    heelPin.position.set(0, 0.7, -0.2);
+    heelPin.position.set(0, 0.24, -0.55);
     arm.add(heelPin);
 
     // アーム上面のバケットシリンダー取付ブラケット
@@ -862,10 +862,10 @@
       boom,  new THREE.Vector3(0, boomCenterY(2.2) - boomHalf(2.2) - 0.04, 2.2),
       { barrelLen: 1.7, barrelR: 0.15, rodR: 0.09 }
     );
-    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール頂点ピン
+    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール後端ピン
     addHydraulic(
       boom, new THREE.Vector3(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.3, boomBktZ),
-      arm,  new THREE.Vector3(0, 0.7, -0.2),
+      arm,  new THREE.Vector3(0, 0.24, -0.55),
       { barrelLen: 1.4, barrelR: 0.13, rodR: 0.08 }
     );
     // バケットシリンダー: アーム上面ブラケット → H型リンクの結節点(linkNode)
