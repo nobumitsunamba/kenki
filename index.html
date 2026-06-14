@@ -352,6 +352,8 @@
     // 運転席フレーム（濃いグレー）とガラス
     const matCab   = new THREE.MeshStandardMaterial({ color: COLOR_CAB, roughness: 0.5, metalness: 0.3 });
     const matGlass = new THREE.MeshStandardMaterial({ color: 0xbfe6f2, roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0.55 });
+    // キャブのガラス（薄いグレー）
+    const matCabGlass = new THREE.MeshStandardMaterial({ color: 0xdfe3e6, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
 
     // テキストを描いたテクスチャ（看板用）。mirror=true で左右反転して描く
     // （背面向きに配置しても正しく読めるようにするため）。
@@ -522,18 +524,20 @@
     const cab = mesh(makeCabSide(), matCab);
     cab.position.set(CAB_X, CAB_Y, CAB_Z);
     swing.add(cab);
-    // 側面ガラス（外側+x, 大きめ）
-    const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.0, 1.5), matGlass);
-    glassSide.position.set(CAB_X + CAB_W / 2 + 0.01, CAB_Y + 0.25, CAB_Z);
-    swing.add(glassSide);
-    // ウィンドシールド（前面・傾斜）
-    const windshield = mesh(new THREE.BoxGeometry(0.92, 0.78, 0.05), matGlass);
-    windshield.position.set(CAB_X, CAB_Y + 0.48, CAB_Z + 0.7);
-    windshield.rotation.x = -0.64; // 前上が後傾
+    // 側面ガラス（左右両面）。フレームを残すため面より少し小さく。
+    for (const sx of [CAB_X + CAB_W / 2 + 0.005, CAB_X - CAB_W / 2 - 0.005]) {
+      const gs = mesh(new THREE.BoxGeometry(0.03, 1.12, 1.5), matCabGlass);
+      gs.position.set(sx, CAB_Y + 0.26, CAB_Z);
+      swing.add(gs);
+    }
+    // 前面ウィンドシールド（上から下まで1枚・傾斜）
+    const windshield = mesh(new THREE.BoxGeometry(0.86, 1.27, 0.04), matCabGlass);
+    windshield.position.set(CAB_X, CAB_Y + 0.15, CAB_Z + 0.7);
+    windshield.rotation.x = -0.32; // 前上が後傾(1枚ガラス)
     swing.add(windshield);
-    // 後面ガラス
-    const glassRear = mesh(new THREE.BoxGeometry(0.86, 0.8, 0.05), matGlass);
-    glassRear.position.set(CAB_X, CAB_Y + 0.2, CAB_Z - 0.9 - 0.01);
+    // 後面ガラス（見える範囲はすべてガラス）
+    const glassRear = mesh(new THREE.BoxGeometry(0.86, 1.25, 0.04), matCabGlass);
+    glassRear.position.set(CAB_X, CAB_Y + 0.18, CAB_Z - 0.9 - 0.005);
     swing.add(glassRear);
 
     // 排気筒
@@ -818,7 +822,7 @@
     }
     // 刃先（ツース風）— 機体側(-Z)の開口の縁
     for (let i = -1; i <= 1; i++) {
-      const tooth = mesh(new THREE.BoxGeometry(0.16, 0.14, 0.34), matDark2);
+      const tooth = mesh(new THREE.BoxGeometry(0.16, 0.14, 0.34), matBody);
       tooth.position.set(i * 0.3, -0.8, -0.76);
       tooth.rotation.x = 0.2;
       bucket.add(tooth);
@@ -846,7 +850,7 @@
     idlerAnchor.position.set(0, 0.1, ARM_LEN - 0.35);
     arm.add(idlerAnchor);
     // アーム側面のアイドラリンク取付ピン（横向き円柱・左右に貫通）
-    const idlerPin = mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.56, 12), matDark);
+    const idlerPin = mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.56, 12), matBody);
     idlerPin.rotation.z = Math.PI / 2;
     idlerPin.position.copy(idlerAnchor.position);
     arm.add(idlerPin);
@@ -874,7 +878,7 @@
       bucket.add(ear);
     }
     // 頂点を左右に貫通するピン
-    const lugPin = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 12), matDark);
+    const lugPin = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 12), matBody);
     lugPin.rotation.z = Math.PI / 2;
     lugPin.position.set(0, -0.2, 0.42);
     bucket.add(lugPin);
@@ -1039,8 +1043,8 @@
       swing:  { obj: swing,  axis: 'y', value: 0.0,    min: -Math.PI, max: Math.PI, speed: 0.9, wrap: true },
       // ブーム: 0=ほぼ水平前方。上げると負方向(先端が上)。
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
-      // アーム: ブームに対する折れ角。伸ばし切り(min)を15°狭め、縮め(max)を15°拡大。
-      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.66,  speed: 0.9 },
+      // アーム: 伸ばし側(min)をさらに15°閉じ、縮め(max)は拡大。
+      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.62,   max: 2.66,  speed: 0.9 },
       // バケット: 開閉。開き側を+45°拡大(min-2.28)、閉じ側を45°手前で制限(max0.22)。
       bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -2.28,  max: 0.22,  speed: 1.2 },
     };
