@@ -552,16 +552,26 @@
       boom.add(boomMeshObj);
     }
 
-    // ブーム両側面の KOBELCO 白文字（写真準拠・先端寄り・縮小）
+    // ブーム両側面の KOBELCO 白文字（写真準拠・先端寄り・縮小・ブーム傾斜に沿う）
     {
       const tz = 4.1, ty = boomCenterY(4.1);
-      // 両側面とも鏡像描画にすると正立する
-      const tex = makeTextTexture('KOBELCO', null, '#ffffff', true);
-      const mat = () => new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6 });
-      const txtR = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.4), mat());
-      txtR.position.set(0.31, ty, tz); txtR.rotation.y = Math.PI / 2; boom.add(txtR);
-      const txtL = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.4), mat());
-      txtL.position.set(-0.31, ty, tz); txtL.rotation.y = -Math.PI / 2; boom.add(txtL);
+      // ブーム中心線の傾き（このzでの dcy/dz）に合わせて文字を傾ける
+      const slope = BOOM_CURVE * (Math.PI / BOOM_LEN) * Math.cos(Math.PI * tz / BOOM_LEN);
+      const ang = Math.atan(slope);
+      const tex = makeTextTexture('KOBELCO', null, '#ffffff', false); // 鏡像なしで両面正立
+      for (const sgn of [1, -1]) {
+        const pivot = new THREE.Object3D();
+        pivot.position.set(0, ty, tz);
+        pivot.rotation.x = ang;          // ブーム傾斜に沿わせる
+        boom.add(pivot);
+        const txt = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.5, 0.4),
+          new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6 })
+        );
+        txt.position.set(sgn * 0.31, 0, 0);
+        txt.rotation.y = sgn > 0 ? Math.PI / 2 : -Math.PI / 2; // 側面を向く
+        pivot.add(txt);
+      }
     }
 
     // ブームのピボット軸（シリンダー, 横向き）
