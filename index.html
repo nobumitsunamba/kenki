@@ -541,7 +541,7 @@
     // 反り cy = 中央が上, 厚み half = 根元厚め。両端は z 軸上(cy=0)でピボット/先端に一致。
     const BOOM_CURVE = 0.88;
     const boomCenterY = (z) => BOOM_CURVE * Math.sin(Math.PI * z / BOOM_LEN);
-    const boomHalf    = (z) => 0.42 - 0.13 * (z / BOOM_LEN);
+    const boomHalf    = (z) => 0.22 + 0.22 * Math.sin(Math.PI * z / BOOM_LEN); // 中央が太く端が細い
     {
       const N = 12, samples = [];
       for (let i = 0; i <= N; i++) {
@@ -552,11 +552,11 @@
       boom.add(boomMeshObj);
     }
 
-    // ブーム両側面の KOBELCO 白文字（写真準拠）
+    // ブーム両側面の KOBELCO 白文字（写真準拠・先端寄り）
     {
-      const tz = 3.0, ty = boomCenterY(3.0);
-      const texR = makeTextTexture('KOBELCO', null, '#ffffff', false);
-      const texL = makeTextTexture('KOBELCO', null, '#ffffff', true);
+      const tz = 4.1, ty = boomCenterY(4.1);
+      const texR = makeTextTexture('KOBELCO', null, '#ffffff', true);  // +x面は鏡像描画で正立
+      const texL = makeTextTexture('KOBELCO', null, '#ffffff', false);
       const mat = (t) => new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.6 });
       const txtR = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.5), mat(texR));
       txtR.position.set(0.31, ty, tz); txtR.rotation.y = Math.PI / 2; boom.add(txtR);
@@ -907,12 +907,11 @@
       swing:  { obj: swing,  axis: 'y', value: 0.0,    min: -Math.PI, max: Math.PI, speed: 0.9, wrap: true },
       // ブーム: 0=ほぼ水平前方。上げると負方向(先端が上)。
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
-      // アーム: ブームに対する折れ角。
-      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.1,    max: 2.4,   speed: 0.9 },
-      // バケット: 開閉（掘削/排土）。value大=閉じる, 小=開く。
-      // 開き側を約60°拡大、閉じ側を約60°手前で制限（アームへの食い込み防止）。
-      // バケット: 開閉。リンク機構が破綻しない範囲に開き側を制限(-1.7≈97°開)。
-      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -1.7,   max: 0.35,  speed: 1.2 },
+      // アーム: ブームに対する折れ角。伸ばし切り(min)を15°(≈0.26)狭めた。
+      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.4,   speed: 0.9 },
+      // バケット: 開閉（掘削/排土）。value大=閉じる(掬う), 小=開く(排土)。
+      // カタログの稼働範囲に合わせ、掬い側を拡大。
+      bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -1.5,   max: 1.0,   speed: 1.2 },
     };
 
     function applyJoints() {
