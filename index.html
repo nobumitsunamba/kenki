@@ -160,6 +160,7 @@
 
   <script type="module">
     import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'https://unpkg.com/three@0.160.0/examples/jsm/geometries/RoundedBoxGeometry.js';
 
     // ===== 色定義 =====
     const COLOR_BODY   = 0x00A3AE; // コベルコ建機 ブルーグリーン（ロゴ背景の明るいティール）
@@ -378,6 +379,10 @@
       m.receiveShadow = true;
       return m;
     }
+    // 角を丸めた箱（実機の面取りに近づける）
+    function rbox(w, h, d, r = 0.08) {
+      return new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w / 2, h / 2, d / 2));
+    }
 
     // =========================================================
     //  関節の親子構造
@@ -453,7 +458,7 @@
     addTrackShoes(TRACK_HALF);
 
     // カーボディ(下部中央フレーム)＋旋回ベアリング
-    const carbody = mesh(new THREE.BoxGeometry(1.7, 0.55, 2.6), matDark2);
+    const carbody = mesh(rbox(1.7, 0.55, 2.6, 0.08), matDark2);
     carbody.position.set(0, 0.7, 0);
     base.add(carbody);
     const swingBearing = mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.32, 28), matDark);
@@ -472,17 +477,17 @@
     swing.add(turntable);
 
     // メインデッキ
-    const deck = mesh(new THREE.BoxGeometry(2.6, 0.32, 4.2), matBody);
+    const deck = mesh(rbox(2.6, 0.32, 4.2, 0.08), matBody);
     deck.position.set(0, 0.26, -0.7);
     swing.add(deck);
 
     // エンジンフード(後部) — キャブより低く
-    const hood = mesh(new THREE.BoxGeometry(2.45, 0.8, 2.2), matBody);
+    const hood = mesh(rbox(2.45, 0.8, 2.2, 0.12), matBody);
     hood.position.set(0.05, 0.78, -1.35);
     swing.add(hood);
 
     // カウンターウェイト（最後部, R2.91）
-    const counter = mesh(new THREE.BoxGeometry(2.45, 1.2, 0.8), matBody);
+    const counter = mesh(rbox(2.45, 1.2, 0.8, 0.12), matBody);
     counter.position.set(0, 0.68, -2.5);
     swing.add(counter);
 
@@ -497,7 +502,7 @@
     swing.add(nameplate);
 
     // オペレータキャブ（左前）: 濃いグレーのフレームに大きなガラス。天端=地上2.98。
-    const cab = mesh(new THREE.BoxGeometry(1.02, 1.56, 1.8), matCab);
+    const cab = mesh(rbox(1.02, 1.56, 1.8, 0.07), matCab);
     cab.position.set(0.79, 1.20, 0.6);
     swing.add(cab);
     // 前面ガラス（大きめ）
@@ -598,7 +603,7 @@
     const BOOM_LEN = 5.68; // ブーム長
     const ARM_LEN = 2.94;  // アーム長(図面記載)
     // ブームフット（ブームピボットの台座）＋ブームシリンダー下部の取付ラグ
-    const boomFoot = mesh(new THREE.BoxGeometry(1.1, 0.95, 0.85), matBody);
+    const boomFoot = mesh(rbox(1.1, 0.95, 0.85, 0.1), matBody);
     boomFoot.position.set(-0.45, 0.45, 1.35);
     swing.add(boomFoot);
     // ブームシリンダー下部の取付ブラケット（前方・左右）
@@ -1037,6 +1042,24 @@
     //  right : y(上下)=ブーム, x(左右)=バケット
     // =========================================================
     const input = { lx: 0, ly: 0, rx: 0, ry: 0, tx: 0, ty: 0 };
+    // PC用キーボード入力（タッチと加算合成）
+    const keys = { lx: 0, ly: 0, rx: 0, ry: 0, tx: 0, ty: 0 };
+    const keyMap = {
+      KeyW: ['ly', -1], KeyS: ['ly', 1],          // 左レバー上下＝アーム伸/縮
+      KeyA: ['lx', -1], KeyD: ['lx', 1],          // 左レバー左右＝旋回
+      ArrowUp: ['ry', -1], ArrowDown: ['ry', 1],  // 右レバー上下＝ブーム
+      ArrowLeft: ['rx', -1], ArrowRight: ['rx', 1], // 右レバー左右＝バケット
+      KeyT: ['ty', -1], KeyG: ['ty', 1],          // 走行 前後
+      KeyF: ['tx', -1], KeyH: ['tx', 1],          // 走行 旋回
+    };
+    window.addEventListener('keydown', (e) => {
+      const k = keyMap[e.code]; if (k) { keys[k[0]] = k[1]; e.preventDefault(); }
+    });
+    window.addEventListener('keyup', (e) => {
+      const k = keyMap[e.code]; if (k && keys[k[0]] === k[1]) { keys[k[0]] = 0; e.preventDefault(); }
+    });
+    // タッチ＋キーボードを加算した実効入力（-1..1）
+    function ax(name) { return Math.max(-1, Math.min(1, input[name] + keys[name])); }
 
     function setupStick(stickId, knobId, onChange, maxR = 44) {
       const stick = document.getElementById(stickId);
@@ -1056,8 +1079,17 @@
         if (dist > maxR) { dx *= maxR / dist; dy *= maxR / dist; }
         knob.style.transform = `translate(${dx}px, ${dy}px)`;
         knob.style.background = 'rgba(255,235,150,0.95)';
-        // 正規化: 右+ / 下+ → 必要に応じて呼び出し側で反転
-        onChange(dx / maxR, dy / maxR);
+        // 正規化: 右+ / 下+
+        let nx = dx / maxR, ny = dy / maxR;
+        // 中心デッドゾーン＋軸スナップ: 主軸に対し副軸が小さければ吸収し、
+        // 水平/垂直操作時のわずかな90°方向の動きをクリアランスとして無視する。
+        if (Math.hypot(nx, ny) < 0.12) { nx = 0; ny = 0; }
+        else {
+          const ax = Math.abs(nx), ay = Math.abs(ny);
+          if (ax >= ay) { if (ay < ax * 0.45) ny = 0; }
+          else { if (ax < ay * 0.45) nx = 0; }
+        }
+        onChange(nx, ny);
       }
       function release() {
         active = false; pid = null;
@@ -1108,9 +1140,9 @@
     const TURN_SPEED   = 0.5; // 旋回速度(rad/s)
     function updateTravel(dt) {
       // 旋回: 左に倒す(tx<0)→左旋回(+Y)
-      base.rotation.y -= input.tx * TURN_SPEED * dt;
+      base.rotation.y -= ax('tx') * TURN_SPEED * dt;
       // 前後: 上に倒す(ty<0)→前進。機体前方は base ローカル +Z。
-      const fwd = -input.ty * TRAVEL_SPEED * dt;
+      const fwd = -ax('ty') * TRAVEL_SPEED * dt;
       const h = base.rotation.y;
       base.position.x += Math.sin(h) * fwd;
       base.position.z += Math.cos(h) * fwd;
@@ -1149,19 +1181,19 @@
       const prevBoom = joints.boom.value, prevArm = joints.arm.value;
 
       // 旋回（左レバー左右）: 左に倒す(x<0)→反時計回り(+Y)
-      joints.swing.value -= input.lx * joints.swing.speed * dt;
+      joints.swing.value -= ax('lx') * joints.swing.speed * dt;
       // 角度ラップ
       if (joints.swing.value > Math.PI)  joints.swing.value -= Math.PI * 2;
       if (joints.swing.value < -Math.PI) joints.swing.value += Math.PI * 2;
 
       // アーム（左レバー上下）: 上に倒す(y<0)→伸ばす(角度を小さく)
-      joints.arm.value = clamp(joints.arm.value + input.ly * joints.arm.speed * dt, joints.arm.min, joints.arm.max);
+      joints.arm.value = clamp(joints.arm.value + ax('ly') * joints.arm.speed * dt, joints.arm.min, joints.arm.max);
 
       // ブーム（右レバー上下）: 上に倒す(y<0)→ブーム下げ / 下に倒す(y>0)→ブーム上げ
-      joints.boom.value = clamp(joints.boom.value - input.ry * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
+      joints.boom.value = clamp(joints.boom.value - ax('ry') * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
 
       // バケット（右レバー左右）: 右(x>0)→開く(角度小さく), 左→閉じる(掬う)
-      joints.bucket.value = clamp(joints.bucket.value - input.rx * joints.bucket.speed * dt, joints.bucket.min, joints.bucket.max);
+      joints.bucket.value = clamp(joints.bucket.value - ax('rx') * joints.bucket.speed * dt, joints.bucket.min, joints.bucket.max);
 
       applyJoints();
 
