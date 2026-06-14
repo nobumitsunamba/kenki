@@ -343,6 +343,39 @@
       return i < 0 ? 0 : fieldPos.getY(i);
     }
 
+    // 初期地形: 円錐プロファイルで山(+)/穴(-)を作り、体積を正確に volM3 にする。
+    function sculptCone(cx, cz, R, sign, volM3) {
+      const rad = Math.ceil(R / CELL);
+      const ixc = Math.round((cx + FIELD_HW) / CELL);
+      const izc = Math.round((FIELD_HW + cz) / CELL);
+      const cells = [];
+      let shape = 0; // Σ f * セル面積（= 体積/ピーク）
+      for (let dz = -rad; dz <= rad; dz++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          const ix = ixc + dx, iy = izc + dz;
+          if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) continue;
+          const wx = ix * CELL - FIELD_HW, wz = iy * CELL - FIELD_HW;
+          const r = Math.hypot(wx - cx, wz - cz);
+          if (r > R) continue;
+          const f = 1 - r / R;            // 円錐
+          shape += f * CELL * CELL;
+          cells.push([iy * (FIELD_SEG + 1) + ix, f]);
+        }
+      }
+      const peak = volM3 / shape;          // 体積=volM3 になるピーク高
+      for (const [idx, f] of cells) {
+        const h = sign * peak * f;
+        fieldPos.setY(idx, h);
+        setVertColor(idx, h);
+      }
+    }
+    // 左(-x)に20m³の山、右(+x)に20m³の穴。車体を動かさずアームが届く位置。
+    sculptCone(-4.5, 3.0, 3.0, +1, 20);
+    sculptCone(4.5, 3.0, 3.0, -1, 20);
+    fieldPos.needsUpdate = true;
+    colAttr.needsUpdate = true;
+    fieldGeo.computeVertexNormals();
+
     // ===== マテリアル =====
     // 車体塗装: 環境マップを反射する金属塗装風（クリアコート感）
     const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.4, metalness: 0.35, envMapIntensity: 0.8 });
@@ -564,7 +597,7 @@
     wsLower.position.set(CAB_X, CAB_Y - 0.22, CAB_Z + 0.95);
     swing.add(wsLower);
     const wsUpper = mesh(new THREE.BoxGeometry(0.66, 0.66, 0.02), matCabGlass);
-    wsUpper.position.set(CAB_X, CAB_Y + 0.455, CAB_Z + 0.71);
+    wsUpper.position.set(CAB_X, CAB_Y + 0.50, CAB_Z + 0.78); // 斜面の外側へ
     wsUpper.rotation.x = -0.6;
     swing.add(wsUpper);
     // 後面ガラス（フレームを残す）
