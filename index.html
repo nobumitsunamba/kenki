@@ -605,36 +605,25 @@
     glassRear.position.set(CAB_X, CAB_Y + 0.18, CAB_Z - 0.9 - 0.04);
     swing.add(glassRear);
 
-    // 排気筒
-    const stack = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.55, 12), matDark);
-    stack.position.set(-0.7, 1.6, -1.35);
-    swing.add(stack);
-
-    // ===== 車体ディテール（ルーバー・手すり・キャブ小物） =====
-    // エンジンフード側面のルーバー（吸排気スリット, 左右両面）
+    // ===== 車体ディテール（ルーバー・キャブ小物） =====
+    // エンジンフード側面のルーバー（左右両面・ブルーグリーン）。z幅1.4。
+    const SIDE_MESH_ZC = -1.45, SIDE_MESH_ZLEN = 1.4;
     for (const sx of [-1.19, 1.29]) {
       for (let i = 0; i < 7; i++) {
-        const sl = mesh(new THREE.BoxGeometry(0.05, 0.06, 1.4), matDark);
-        sl.position.set(sx, 0.55 + i * 0.085, -1.45);
+        const sl = mesh(new THREE.BoxGeometry(0.05, 0.06, SIDE_MESH_ZLEN), matBody);
+        sl.position.set(sx, 0.55 + i * 0.085, SIDE_MESH_ZC);
         swing.add(sl);
       }
     }
-    // デッキ上の手すり（フード後部・左側面の縁）
+    // 本体上部の黒いメッシュ（側面メッシュと同じz幅1.4、厚み0.2m）。
     {
-      const postH = 0.5, ry = 1.18;
-      for (const [px, pz] of [[-1.12, -0.45], [-1.12, -1.35], [-1.12, -2.25], [1.22, -2.25]]) {
-        const post = mesh(new THREE.CylinderGeometry(0.03, 0.03, postH, 8), matSilver);
-        post.position.set(px, ry + postH / 2, pz);
-        swing.add(post);
+      const n = 9, top = 1.18; // フード上面
+      for (let i = 0; i < n; i++) {
+        const z = SIDE_MESH_ZC - SIDE_MESH_ZLEN / 2 + SIDE_MESH_ZLEN * (i / (n - 1));
+        const fin = mesh(new THREE.BoxGeometry(1.9, 0.2, 0.04), matDark);
+        fin.position.set(0.05, top + 0.1, z); // 厚み0.2m(上面から+0.2)
+        swing.add(fin);
       }
-      const rail = mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.9, 8), matSilver);
-      rail.rotation.x = Math.PI / 2;
-      rail.position.set(-1.12, ry + postH, -1.35);
-      swing.add(rail);
-      const railRear = mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.4, 8), matSilver);
-      railRear.rotation.z = Math.PI / 2;
-      railRear.position.set(0.05, ry + postH, -2.25);
-      swing.add(railRear);
     }
     // キャブ小物（アンテナ・グラブレール・ミラー）。キャブは+x側。
     {
