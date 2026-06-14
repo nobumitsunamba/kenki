@@ -665,10 +665,11 @@
     //  linkNode にバケットシリンダーのロッド端が付く。
     // =========================================================
     const idlerAnchor = new THREE.Object3D();
-    idlerAnchor.position.set(0, 0.38, ARM_LEN - 0.42);
+    idlerAnchor.position.set(0, 0.48, ARM_LEN - 0.45);
     arm.add(idlerAnchor);
-    const idlerBracket = mesh(new THREE.BoxGeometry(0.34, 0.34, 0.3), matBody);
-    idlerBracket.position.copy(idlerAnchor.position);
+    // アーム上面から立ち上がるアイドラリンク取付ブラケット
+    const idlerBracket = mesh(new THREE.BoxGeometry(0.3, 0.55, 0.32), matBody);
+    idlerBracket.position.set(0, 0.26, ARM_LEN - 0.45);
     arm.add(idlerBracket);
 
     const bucketLug = new THREE.Object3D();
@@ -768,6 +769,7 @@
     //  H型リンクの四節リンク解（YZ平面内の2円交点）
     // =========================================================
     let linkInit = false, L_idler = 0, L_power = 0;
+    let prevNy = 0, prevNz = 0; // 前フレームの結節点(アームローカル)
     const _p1w = new THREE.Vector3(), _p2w = new THREE.Vector3();
     const _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3(), _node = new THREE.Vector3();
     const _xoff = new THREE.Vector3(), _barA = new THREE.Vector3(), _barB = new THREE.Vector3();
@@ -779,9 +781,10 @@
       _p2.copy(_p2w); arm.worldToLocal(_p2);
       if (!linkInit) {
         // 初期姿勢から各リンク長を確定（結節点をアーム上面より上に置く）
-        const ny = (_p1.y + _p2.y) / 2 + 0.7, nz = (_p1.z + _p2.z) / 2;
-        L_idler = Math.hypot(ny - _p1.y, nz - _p1.z);
-        L_power = Math.hypot(ny - _p2.y, nz - _p2.z);
+        prevNy = (_p1.y + _p2.y) / 2 + 0.7;
+        prevNz = (_p1.z + _p2.z) / 2;
+        L_idler = Math.hypot(prevNy - _p1.y, prevNz - _p1.z);
+        L_power = Math.hypot(prevNy - _p2.y, prevNz - _p2.z);
         linkInit = true;
       }
       // 2円交点（中心 _p1,_p2、半径 L_idler,L_power）
@@ -792,10 +795,15 @@
       const hh = Math.sqrt(h2);
       const uy = dy / d, uz = dz / d;        // _p1→_p2 単位ベクトル
       const my = _p1.y + a * uy, mz = _p1.z + a * uz;
-      // 結節点は上側の組み立てモード(uを-90°回した側)。さらにアーム上面へ
-      // 落ち込まないよう下限ガード(ローカルy)を掛け、シリンダーのめり込みを防ぐ。
-      const ny = Math.max(my + hh * uz, 0.5);
-      const nz = mz - hh * uy;
+      // 2つの交点候補。前フレームの結節点に近い方を選ぶ(分岐連続性)。
+      // これで開く途中にモードが反転してリンクが前に飛び出すのを防ぐ。
+      const aY = my - hh * uz, aZ = mz + hh * uy;
+      const bY = my + hh * uz, bZ = mz - hh * uy;
+      const dA = (aY - prevNy) ** 2 + (aZ - prevNz) ** 2;
+      const dB = (bY - prevNy) ** 2 + (bZ - prevNz) ** 2;
+      const ny = dA <= dB ? aY : bY;
+      const nz = dA <= dB ? aZ : bZ;
+      prevNy = ny; prevNz = nz;
       _node.set(0, ny, nz);
       arm.localToWorld(_node);
       linkNode.position.copy(_node);
