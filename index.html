@@ -617,7 +617,7 @@
     }
     // 本体上部の板金メッシュカバー（高さ0.1m、スリット入り）。側面メッシュと同じz幅1.4。
     {
-      const top = 1.18, H = 0.1, xw = 1.9;       // フード上面 / カバー高さ / 幅
+      const top = 1.18, H = 0.2, xw = 1.9;       // フード上面 / カバー高さ(20cm) / 幅
       const zc = SIDE_MESH_ZC, zlen = SIDE_MESH_ZLEN;
       const slatW = 0.1, gap = 0.055, period = slatW + gap;
       const n = Math.floor(zlen / period);
@@ -639,10 +639,8 @@
         swing.add(end);
       }
     }
-    // キャブ小物（アンテナ・グラブレール・ミラー）。キャブは+x側。
+    // キャブ小物（グラブレール・ミラー）。キャブは+x側。
     {
-      const ant = mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 6), matDark);
-      ant.position.set(1.0, 2.05, -0.05); swing.add(ant);
       const grab = mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.0, 8), matSilver);
       grab.position.set(1.31, 1.3, 1.48); swing.add(grab);
       const stay = mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.32, 6), matDark);
