@@ -110,6 +110,10 @@
       background: linear-gradient(90deg, #c39a5e, #8a6233);
       transition: width 0.08s linear;
     }
+    #dumpVol {
+      margin-top: 6px; color: #fff; font-size: 13px; font-weight: bold;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
   </style>
 
   <!-- Three.js を importmap で読み込む（ビルド不要） -->
@@ -129,6 +133,7 @@
   <div id="hud">
     <div id="loadLabel">バケット土量</div>
     <div id="loadBar"><div id="loadFill"></div></div>
+    <div id="dumpVol">排土量 0.00 m³</div>
   </div>
 
   <div id="controls">
@@ -160,6 +165,7 @@
 
   <script type="module">
     import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'https://unpkg.com/three@0.160.0/examples/jsm/geometries/RoundedBoxGeometry.js';
 
     // ===== 色定義 =====
     const COLOR_BODY   = 0x00A3AE; // コベルコ建機 ブルーグリーン（ロゴ背景の明るいティール）
@@ -214,6 +220,27 @@
     const fill = new THREE.DirectionalLight(0xaac4e0, 0.3);
     fill.position.set(-18, 12, -20);
     scene.add(fill);
+
+    // ===== 環境マップ（金属塗装の反射用）=====
+    // 空〜地面のグラデを equirect として PMREM 化し、scene.environment に。
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    function makeEnvTexture() {
+      const w = 256, h = 128;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0.0, '#dCEBF7'); // 天頂
+      g.addColorStop(0.48, '#bcd6ea');
+      g.addColorStop(0.52, '#8f8a6a'); // 地平
+      g.addColorStop(1.0, '#6b6150'); // 地面
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+    const envRT = pmrem.fromEquirectangular(makeEnvTexture());
+    scene.environment = envRT.texture;
 
     // ===== 地面（土っぽい手続き的テクスチャ）=====
     function makeGroundTexture() {
@@ -316,17 +343,55 @@
       return i < 0 ? 0 : fieldPos.getY(i);
     }
 
+    // 初期地形: 円錐プロファイルで山(+)/穴(-)を作り、体積を正確に volM3 にする。
+    function sculptCone(cx, cz, R, sign, volM3) {
+      const rad = Math.ceil(R / CELL);
+      const ixc = Math.round((cx + FIELD_HW) / CELL);
+      const izc = Math.round((FIELD_HW + cz) / CELL);
+      const cells = [];
+      let shape = 0; // Σ f * セル面積（= 体積/ピーク）
+      for (let dz = -rad; dz <= rad; dz++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          const ix = ixc + dx, iy = izc + dz;
+          if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) continue;
+          const wx = ix * CELL - FIELD_HW, wz = iy * CELL - FIELD_HW;
+          const r = Math.hypot(wx - cx, wz - cz);
+          if (r > R) continue;
+          const f = 1 - r / R;            // 円錐
+          shape += f * CELL * CELL;
+          cells.push([iy * (FIELD_SEG + 1) + ix, f]);
+        }
+      }
+      const peak = volM3 / shape;          // 体積=volM3 になるピーク高
+      for (const [idx, f] of cells) {
+        const h = sign * peak * f;
+        fieldPos.setY(idx, h);
+        setVertColor(idx, h);
+      }
+    }
+    // 左(-x)に20m³の山、右(+x)に20m³の穴。車体を動かさずアームが届く位置。
+    sculptCone(-4.5, 3.0, 3.0, +1, 20);
+    sculptCone(4.5, 3.0, 3.0, -1, 20);
+    fieldPos.needsUpdate = true;
+    colAttr.needsUpdate = true;
+    fieldGeo.computeVertexNormals();
+
     // ===== マテリアル =====
-    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.55, metalness: 0.25 });
-    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.9,  metalness: 0.1 });
-    const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.85, metalness: 0.1 });
+    // 車体塗装: 環境マップを反射する金属塗装風（クリアコート感）
+    const matBody  = new THREE.MeshStandardMaterial({ color: COLOR_BODY,  roughness: 0.4, metalness: 0.35, envMapIntensity: 0.8 });
+    const matDark  = new THREE.MeshStandardMaterial({ color: COLOR_DARK,  roughness: 0.85, metalness: 0.2, envMapIntensity: 0.5 });
+    const matDark2 = new THREE.MeshStandardMaterial({ color: COLOR_DARK2, roughness: 0.8,  metalness: 0.2, envMapIntensity: 0.5 });
     // 油圧シリンダーのロッド（クロムメッキ風の光る鋼）
-    const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.2, metalness: 0.9 });
+    const matSteel = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, roughness: 0.18, metalness: 0.95, envMapIntensity: 1.0 });
     // シリンダーのバレル（ボディと同じブルーグリーン）
-    const matBarrel = new THREE.MeshStandardMaterial({ color: COLOR_BODY, roughness: 0.5, metalness: 0.35 });
+    const matBarrel = new THREE.MeshStandardMaterial({ color: COLOR_BODY, roughness: 0.4, metalness: 0.55, envMapIntensity: 0.9 });
+    // 鋼の銀色（手すり・スウォッシュ等）
+    const matSilver = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.35, metalness: 0.8, envMapIntensity: 1.0 });
     // 運転席フレーム（濃いグレー）とガラス
     const matCab   = new THREE.MeshStandardMaterial({ color: COLOR_CAB, roughness: 0.5, metalness: 0.3 });
     const matGlass = new THREE.MeshStandardMaterial({ color: 0xbfe6f2, roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0.55 });
+    // キャブのガラス（青みがかったグレー。ソリッドなキャブの上に載せるのでほぼ不透明）
+    const matCabGlass = new THREE.MeshStandardMaterial({ color: 0xa9bcc9, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.0, side: THREE.DoubleSide });
 
     // テキストを描いたテクスチャ（看板用）。mirror=true で左右反転して描く
     // （背面向きに配置しても正しく読めるようにするため）。
@@ -337,7 +402,7 @@
       if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height); } // bg=null で透明
       if (mirror) { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
       ctx.fillStyle = fg;
-      ctx.font = 'bold 110px Arial, sans-serif';
+      ctx.font = 'bold 99px Arial, sans-serif'; // 端文字が切れないよう10%縮小
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, cv.width / 2, cv.height / 2 + 6);
@@ -353,6 +418,10 @@
       m.castShadow = true;
       m.receiveShadow = true;
       return m;
+    }
+    // 角を丸めた箱（実機の面取りに近づける）
+    function rbox(w, h, d, r = 0.08) {
+      return new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w / 2, h / 2, d / 2));
     }
 
     // =========================================================
@@ -429,7 +498,7 @@
     addTrackShoes(TRACK_HALF);
 
     // カーボディ(下部中央フレーム)＋旋回ベアリング
-    const carbody = mesh(new THREE.BoxGeometry(1.7, 0.55, 2.6), matDark2);
+    const carbody = mesh(rbox(1.7, 0.55, 2.6, 0.08), matDark2);
     carbody.position.set(0, 0.7, 0);
     base.add(carbody);
     const swingBearing = mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.32, 28), matDark);
@@ -448,17 +517,17 @@
     swing.add(turntable);
 
     // メインデッキ
-    const deck = mesh(new THREE.BoxGeometry(2.6, 0.32, 4.2), matBody);
+    const deck = mesh(rbox(2.6, 0.32, 4.2, 0.08), matBody);
     deck.position.set(0, 0.26, -0.7);
     swing.add(deck);
 
     // エンジンフード(後部) — キャブより低く
-    const hood = mesh(new THREE.BoxGeometry(2.45, 0.8, 2.2), matBody);
+    const hood = mesh(rbox(2.45, 0.8, 2.2, 0.12), matBody);
     hood.position.set(0.05, 0.78, -1.35);
     swing.add(hood);
 
     // カウンターウェイト（最後部, R2.91）
-    const counter = mesh(new THREE.BoxGeometry(2.45, 1.2, 0.8), matBody);
+    const counter = mesh(rbox(2.45, 1.2, 0.8, 0.12), matBody);
     counter.position.set(0, 0.68, -2.5);
     swing.add(counter);
 
@@ -472,34 +541,157 @@
     nameplate.rotation.y = Math.PI;          // -Z を向く
     swing.add(nameplate);
 
-    // オペレータキャブ（左前）: 濃いグレーのフレームに大きなガラス。天端=地上2.98。
-    const cab = mesh(new THREE.BoxGeometry(1.02, 1.56, 1.8), matCab);
-    cab.position.set(0.79, 1.20, 0.6);
+    // オペレータキャブ（左前）: 側面シルエットを実機に寄せる。前上にウィンドシールド傾斜。
+    const CAB_W = 1.02, CAB_X = 0.79, CAB_Y = 1.20, CAB_Z = 0.6;
+    function makeCabSide() {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.9, -0.78);  // 後下
+      sh.lineTo(0.9, -0.78);   // 前下
+      sh.lineTo(0.9, 0.18);    // 前(下部は垂直)
+      sh.lineTo(0.5, 0.78);    // ウィンドシールド傾斜 → ルーフ前
+      sh.lineTo(-0.9, 0.78);   // ルーフ
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, {
+        depth: CAB_W, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1,
+      });
+      g.rotateY(-Math.PI / 2);
+      g.translate(CAB_W / 2, 0, 0);
+      g.computeVertexNormals();
+      return g;
+    }
+    const cab = mesh(makeCabSide(), matCab);
+    cab.position.set(CAB_X, CAB_Y, CAB_Z);
     swing.add(cab);
-    // 前面ガラス（大きめ）
-    const glassFront = mesh(new THREE.BoxGeometry(0.86, 1.1, 0.05), matGlass);
-    glassFront.position.set(0.79, 1.4, 0.6 + 0.9 + 0.01);
-    swing.add(glassFront);
-    // 外側側面ガラス（大きめ）
-    const glassSide = mesh(new THREE.BoxGeometry(0.05, 1.1, 1.5), matGlass);
-    glassSide.position.set(0.79 + 0.51 + 0.01, 1.4, 0.6);
-    swing.add(glassSide);
-    // 後方側ガラス
-    const glassRear = mesh(new THREE.BoxGeometry(0.78, 0.9, 0.05), matGlass);
-    glassRear.position.set(0.79, 1.35, 0.6 - 0.9 - 0.01);
+    // 側面ガラス: キャブ側面シルエットを内側に縮めた窓。中央に縦フレームを通して前後2枚に分割。
+    const fw = 0.14, mh = 0.07; // フレーム幅 / 中央縦フレーム半幅
+    function makeCabWindowRear() {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.9 + fw, -0.78 + fw);
+      sh.lineTo(-mh, -0.78 + fw);
+      sh.lineTo(-mh, 0.78 - fw);
+      sh.lineTo(-0.9 + fw, 0.78 - fw);
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2); g.translate(0.01, 0, 0); g.computeVertexNormals();
+      return g;
+    }
+    function makeCabWindowFront() {
+      const sh = new THREE.Shape();
+      sh.moveTo(mh, -0.78 + fw);
+      sh.lineTo(0.9 - fw, -0.78 + fw);
+      sh.lineTo(0.9 - fw, 0.18 - fw * 0.4);
+      sh.lineTo(0.5 - fw * 0.4, 0.78 - fw);
+      sh.lineTo(mh, 0.78 - fw);
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2); g.translate(0.01, 0, 0); g.computeVertexNormals();
+      return g;
+    }
+    const cabWinRear = makeCabWindowRear(), cabWinFront = makeCabWindowFront();
+    for (const sx of [CAB_X + CAB_W / 2 + 0.05, CAB_X - CAB_W / 2 - 0.03]) {
+      const gr = mesh(cabWinRear, matCabGlass); gr.position.set(sx, CAB_Y, CAB_Z); swing.add(gr);
+      const gf = mesh(cabWinFront, matCabGlass); gf.position.set(sx, CAB_Y, CAB_Z); swing.add(gf);
+    }
+    // 前面ウィンドシールド: 下部(垂直)＋上部(傾斜)の2枚。境目フレームなしで連続。上下端のみフレーム。
+    const wsLower = mesh(new THREE.BoxGeometry(0.66, 0.84, 0.02), matCabGlass);
+    wsLower.position.set(CAB_X, CAB_Y - 0.22, CAB_Z + 0.95);
+    swing.add(wsLower);
+    const wsUpper = mesh(new THREE.BoxGeometry(0.66, 0.66, 0.02), matCabGlass);
+    wsUpper.position.set(CAB_X, CAB_Y + 0.50, CAB_Z + 0.78); // 斜面の外側へ
+    wsUpper.rotation.x = -0.6;
+    swing.add(wsUpper);
+    // 後面ガラス（フレームを残す）
+    const glassRear = mesh(new THREE.BoxGeometry(0.62, 1.0, 0.02), matCabGlass);
+    glassRear.position.set(CAB_X, CAB_Y + 0.18, CAB_Z - 0.9 - 0.04);
     swing.add(glassRear);
 
-    // 排気筒
-    const stack = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.55, 12), matDark);
-    stack.position.set(-0.7, 1.6, -1.35);
-    swing.add(stack);
+    // ===== 車体ディテール（ルーバー・キャブ小物） =====
+    // エンジンフード側面のルーバー（左右両面・ブルーグリーン）。z幅1.4。
+    const SIDE_MESH_ZC = -1.45, SIDE_MESH_ZLEN = 1.4;
+    for (const sx of [-1.19, 1.29]) {
+      for (let i = 0; i < 7; i++) {
+        const sl = mesh(new THREE.BoxGeometry(0.05, 0.06, SIDE_MESH_ZLEN), matBody);
+        sl.position.set(sx, 0.55 + i * 0.085, SIDE_MESH_ZC);
+        swing.add(sl);
+      }
+    }
+    // 本体上部の板金メッシュカバー（高さ0.1m、スリット入り）。側面メッシュと同じz幅1.4。
+    {
+      const top = 1.18, H = 0.2, xw = 1.9;       // フード上面 / カバー高さ(20cm) / 幅
+      const zc = SIDE_MESH_ZC, zlen = SIDE_MESH_ZLEN;
+      const slatW = 0.1, gap = 0.055, period = slatW + gap;
+      const n = Math.floor(zlen / period);
+      for (let i = 0; i < n; i++) {
+        const z = zc - zlen / 2 + period * (i + 0.5);
+        const slat = mesh(new THREE.BoxGeometry(xw, H, slatW), matDark); // 板金(スリット間)
+        slat.position.set(0.05, top + H / 2, z);
+        swing.add(slat);
+      }
+      // カバーの縁(前後・左右の枠)
+      for (const sx of [-xw / 2, xw / 2]) {
+        const side = mesh(new THREE.BoxGeometry(0.05, H, zlen), matDark);
+        side.position.set(0.05 + sx, top + H / 2, zc);
+        swing.add(side);
+      }
+      for (const dz of [-zlen / 2, zlen / 2]) {
+        const end = mesh(new THREE.BoxGeometry(xw + 0.05, H, 0.05), matDark);
+        end.position.set(0.05, top + H / 2, zc + dz);
+        swing.add(end);
+      }
+    }
+    // キャブ小物（グラブレール・ミラー）。キャブは+x側。
+    {
+      const grab = mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.0, 8), matSilver);
+      grab.position.set(1.31, 1.3, 1.48); swing.add(grab);
+      const stay = mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.32, 6), matDark);
+      stay.rotation.z = Math.PI / 2; stay.position.set(1.46, 1.95, 1.45); swing.add(stay);
+      const mir = mesh(new THREE.BoxGeometry(0.04, 0.22, 0.16), matDark2);
+      mir.position.set(1.6, 1.98, 1.45); swing.add(mir);
+    }
+
+    // ===== デカール・マーキング =====
+    // SK200 バッジ（フード側面・両面）
+    {
+      const skTex = makeTextTexture('SK200', null, '#ffffff', false);
+      for (const [sx, ry] of [[1.30, Math.PI / 2], [-1.18, -Math.PI / 2]]) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.72, 0.26),
+          new THREE.MeshStandardMaterial({ map: skTex, transparent: true, roughness: 0.6 })
+        );
+        m.position.set(sx, 0.62, -1.95); m.rotation.y = ry; swing.add(m);
+      }
+    }
+    // シルバーのスウォッシュ（流線）デカール（フード下側・両面）
+    function makeSwooshTexture() {
+      const w = 512, h = 192;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      ctx.strokeStyle = 'rgba(205,210,216,0.95)'; ctx.lineCap = 'round';
+      for (const [o, lw] of [[0, 30], [46, 15]]) {
+        ctx.lineWidth = lw; ctx.beginPath();
+        ctx.moveTo(20, 150 - o * 0.3);
+        ctx.quadraticCurveTo(230, 35 - o * 0.2, 492, 105 - o * 0.4);
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+    }
+    {
+      const swTex = makeSwooshTexture();
+      for (const [sx, ry] of [[1.30, Math.PI / 2], [-1.18, -Math.PI / 2]]) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.5, 0.55),
+          new THREE.MeshStandardMaterial({ map: swTex, transparent: true, roughness: 0.5, metalness: 0.3 })
+        );
+        m.position.set(sx, 0.7, -0.45); m.rotation.y = ry; swing.add(m);
+      }
+    }
 
     // ブームの取り付け基部（前方中央やや左＝キャブと反対側）— ここがブームのピボット
     const BOOM_PIVOT = new THREE.Vector3(-0.45, 0.55, 1.45);
     const BOOM_LEN = 5.68; // ブーム長
     const ARM_LEN = 2.94;  // アーム長(図面記載)
     // ブームフット（ブームピボットの台座）＋ブームシリンダー下部の取付ラグ
-    const boomFoot = mesh(new THREE.BoxGeometry(1.1, 0.95, 0.85), matBody);
+    const boomFoot = mesh(rbox(1.1, 0.95, 0.85, 0.1), matBody);
     boomFoot.position.set(-0.45, 0.45, 1.35);
     swing.add(boomFoot);
     // ブームシリンダー下部の取付ブラケット（前方・左右）
@@ -636,7 +828,7 @@
     const armHeelMesh = mesh(makeArmHeel(), matBody);
     arm.add(armHeelMesh);
     // シリンダー取付ピン（ヒール後端＝ブーム根元側）= アームシリンダーの取付点
-    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matDark);
+    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 12), matBody);
     heelPin.rotation.z = Math.PI / 2;
     heelPin.position.set(0, 0.24, -0.55);
     arm.add(heelPin);
@@ -696,7 +888,7 @@
     }
     // 刃先（ツース風）— 機体側(-Z)の開口の縁
     for (let i = -1; i <= 1; i++) {
-      const tooth = mesh(new THREE.BoxGeometry(0.16, 0.14, 0.34), matDark2);
+      const tooth = mesh(new THREE.BoxGeometry(0.16, 0.14, 0.34), matBody);
       tooth.position.set(i * 0.3, -0.8, -0.76);
       tooth.rotation.x = 0.2;
       bucket.add(tooth);
@@ -724,7 +916,7 @@
     idlerAnchor.position.set(0, 0.1, ARM_LEN - 0.35);
     arm.add(idlerAnchor);
     // アーム側面のアイドラリンク取付ピン（横向き円柱・左右に貫通）
-    const idlerPin = mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.56, 12), matDark);
+    const idlerPin = mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.56, 12), matBody);
     idlerPin.rotation.z = Math.PI / 2;
     idlerPin.position.copy(idlerAnchor.position);
     arm.add(idlerPin);
@@ -752,7 +944,7 @@
       bucket.add(ear);
     }
     // 頂点を左右に貫通するピン
-    const lugPin = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 12), matDark);
+    const lugPin = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 12), matBody);
     lugPin.rotation.z = Math.PI / 2;
     lugPin.position.set(0, -0.2, 0.42);
     bucket.add(lugPin);
@@ -917,8 +1109,8 @@
       swing:  { obj: swing,  axis: 'y', value: 0.0,    min: -Math.PI, max: Math.PI, speed: 0.9, wrap: true },
       // ブーム: 0=ほぼ水平前方。上げると負方向(先端が上)。
       boom:   { obj: boom,   axis: 'x', value: -0.35,  min: -1.15,  max: 0.35,  speed: 0.7 },
-      // アーム: ブームに対する折れ角。伸ばし切り(min)を15°(≈0.26)狭めた。
-      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.36,   max: 2.4,   speed: 0.9 },
+      // アーム: 伸ばし側(min)をさらに15°閉じ、縮め(max)は拡大。
+      arm:    { obj: arm,    axis: 'x', value: 0.9,    min: 0.62,   max: 2.66,  speed: 0.9 },
       // バケット: 開閉。開き側を+45°拡大(min-2.28)、閉じ側を45°手前で制限(max0.22)。
       bucket: { obj: bucket, axis: 'x', value: 0.0,    min: -2.28,  max: 0.22,  speed: 1.2 },
     };
@@ -938,6 +1130,24 @@
     //  right : y(上下)=ブーム, x(左右)=バケット
     // =========================================================
     const input = { lx: 0, ly: 0, rx: 0, ry: 0, tx: 0, ty: 0 };
+    // PC用キーボード入力（タッチと加算合成）
+    const keys = { lx: 0, ly: 0, rx: 0, ry: 0, tx: 0, ty: 0 };
+    const keyMap = {
+      KeyW: ['ly', -1], KeyS: ['ly', 1],          // 左レバー上下＝アーム伸/縮
+      KeyA: ['lx', -1], KeyD: ['lx', 1],          // 左レバー左右＝旋回
+      ArrowUp: ['ry', -1], ArrowDown: ['ry', 1],  // 右レバー上下＝ブーム
+      ArrowLeft: ['rx', -1], ArrowRight: ['rx', 1], // 右レバー左右＝バケット
+      KeyT: ['ty', -1], KeyG: ['ty', 1],          // 走行 前後
+      KeyF: ['tx', -1], KeyH: ['tx', 1],          // 走行 旋回
+    };
+    window.addEventListener('keydown', (e) => {
+      const k = keyMap[e.code]; if (k) { keys[k[0]] = k[1]; e.preventDefault(); }
+    });
+    window.addEventListener('keyup', (e) => {
+      const k = keyMap[e.code]; if (k && keys[k[0]] === k[1]) { keys[k[0]] = 0; e.preventDefault(); }
+    });
+    // タッチ＋キーボードを加算した実効入力（-1..1）
+    function ax(name) { return Math.max(-1, Math.min(1, input[name] + keys[name])); }
 
     function setupStick(stickId, knobId, onChange, maxR = 44) {
       const stick = document.getElementById(stickId);
@@ -957,8 +1167,17 @@
         if (dist > maxR) { dx *= maxR / dist; dy *= maxR / dist; }
         knob.style.transform = `translate(${dx}px, ${dy}px)`;
         knob.style.background = 'rgba(255,235,150,0.95)';
-        // 正規化: 右+ / 下+ → 必要に応じて呼び出し側で反転
-        onChange(dx / maxR, dy / maxR);
+        // 正規化: 右+ / 下+
+        let nx = dx / maxR, ny = dy / maxR;
+        // 中心デッドゾーン＋軸スナップ: 主軸に対し副軸が小さければ吸収し、
+        // 水平/垂直操作時のわずかな90°方向の動きをクリアランスとして無視する。
+        if (Math.hypot(nx, ny) < 0.12) { nx = 0; ny = 0; }
+        else {
+          const ax = Math.abs(nx), ay = Math.abs(ny);
+          if (ax >= ay) { if (ay < ax * 0.45) ny = 0; }
+          else { if (ax < ay * 0.45) nx = 0; }
+        }
+        onChange(nx, ny);
       }
       function release() {
         active = false; pid = null;
@@ -1009,9 +1228,9 @@
     const TURN_SPEED   = 0.5; // 旋回速度(rad/s)
     function updateTravel(dt) {
       // 旋回: 左に倒す(tx<0)→左旋回(+Y)
-      base.rotation.y -= input.tx * TURN_SPEED * dt;
+      base.rotation.y -= ax('tx') * TURN_SPEED * dt;
       // 前後: 上に倒す(ty<0)→前進。機体前方は base ローカル +Z。
-      const fwd = -input.ty * TRAVEL_SPEED * dt;
+      const fwd = -ax('ty') * TRAVEL_SPEED * dt;
       const h = base.rotation.y;
       base.position.x += Math.sin(h) * fwd;
       base.position.z += Math.cos(h) * fwd;
@@ -1033,7 +1252,13 @@
       new THREE.Vector3(-0.4, -0.88, -0.32), // 底 左
     ];
     const _ctip = new THREE.Vector3();
+    const _digtip = new THREE.Vector3();
     let lastPen = 0;
+    // 刃先が地表に接触しているか（掬い判定と共通）
+    function tipContacting() {
+      bucketTip.getWorldPosition(_digtip);
+      return _digtip.y < heightAtWorld(_digtip.x, _digtip.z) + 0.12;
+    }
     function tipPenetration() {
       bucket.updateWorldMatrix(true, false);
       let mp = -Infinity;
@@ -1050,26 +1275,29 @@
       const prevBoom = joints.boom.value, prevArm = joints.arm.value;
 
       // 旋回（左レバー左右）: 左に倒す(x<0)→反時計回り(+Y)
-      joints.swing.value -= input.lx * joints.swing.speed * dt;
+      joints.swing.value -= ax('lx') * joints.swing.speed * dt;
       // 角度ラップ
       if (joints.swing.value > Math.PI)  joints.swing.value -= Math.PI * 2;
       if (joints.swing.value < -Math.PI) joints.swing.value += Math.PI * 2;
 
       // アーム（左レバー上下）: 上に倒す(y<0)→伸ばす(角度を小さく)
-      joints.arm.value = clamp(joints.arm.value + input.ly * joints.arm.speed * dt, joints.arm.min, joints.arm.max);
+      joints.arm.value = clamp(joints.arm.value + ax('ly') * joints.arm.speed * dt, joints.arm.min, joints.arm.max);
 
       // ブーム（右レバー上下）: 上に倒す(y<0)→ブーム下げ / 下に倒す(y>0)→ブーム上げ
-      joints.boom.value = clamp(joints.boom.value - input.ry * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
+      joints.boom.value = clamp(joints.boom.value - ax('ry') * joints.boom.speed * dt, joints.boom.min, joints.boom.max);
 
       // バケット（右レバー左右）: 右(x>0)→開く(角度小さく), 左→閉じる(掬う)
-      joints.bucket.value = clamp(joints.bucket.value - input.rx * joints.bucket.speed * dt, joints.bucket.min, joints.bucket.max);
+      joints.bucket.value = clamp(joints.bucket.value - ax('rx') * joints.bucket.speed * dt, joints.bucket.min, joints.bucket.max);
 
       applyJoints();
 
       // 先端が許容より深く、かつ今フレームでさらに深くなったら、ブーム/アームを
       // 戻して下降を止める（横移動や上げ・掬いはそのまま許可）。
+      // ただし掬い掘削中（刃先接触・バケット閉・未満杯）はクランプを無効化し、
+      // 盛り土や地面に刃先を入れて掘れるようにする。
+      const digging = tipContacting() && joints.bucket.value >= -1.3 && bucketLoad < LOAD_CAP;
       let pen = tipPenetration();
-      if (pen > MAX_PEN && pen > lastPen + 1e-4) {
+      if (!digging && pen > MAX_PEN && pen > lastPen + 1e-4) {
         joints.boom.value = prevBoom;
         joints.arm.value = prevArm;
         applyJoints();
@@ -1082,23 +1310,27 @@
     //  掘削・排土（地形変形＋バケット積載）
     // =========================================================
     const LOAD_CAP   = 1.0;     // バケット容量（正規化）
+    const BUCKET_M3  = 0.8;     // バケット満杯=0.8m³ (SK200 0.8m³級)
     const DIG_RADIUS = 0.7;     // 掘削ブラシ半径(バケット幅相当)
     let   bucketLoad = 0;       // 現在の積載量 0..1
+    let   dumpedTotal = 0;      // 排土量の積算(m³)
     const _tip = new THREE.Vector3();
     let   fieldChanged = false; // この変形で頂点が動いたか
     let   normAccum = 0;        // 法線再計算の間引き用
 
-    // 刃先まわりの頂点を tipY まで下げ、削った分を積載量へ
-    function digBrush(cx, cz, tipY, dt) {
-      const target = Math.max(tipY, DIG_MIN);
+    // 刃先フットプリントの頂点を薄く削り取り、削った"体積"を積載へ（体積整合）。
+    // 刃先セルの高さに依らず、その場の表土を削るので山の頂上でも掬える。
+    function digBrush(cx, cz, dt) {
       const rad = Math.ceil(DIG_RADIUS / CELL);
       const ixc = Math.round((cx + FIELD_HW) / CELL);
       const izc = Math.round((FIELD_HW + cz) / CELL);
-      const rate = 3.2 * dt; // 1フレームの最大降下量
+      const cutRate = 0.6 * dt;                 // 1フレームの最大掘り下げ
+      const volCell = CELL * CELL;
+      let remM3 = (LOAD_CAP - bucketLoad) * BUCKET_M3; // 残容量(m³)
       let changed = false;
       for (let dz = -rad; dz <= rad; dz++) {
         for (let dx = -rad; dx <= rad; dx++) {
-          if (bucketLoad >= LOAD_CAP) return changed;
+          if (remM3 <= 0) return changed;
           const ix = ixc + dx, iy = izc + dz;
           if (ix < 0 || ix > FIELD_SEG || iy < 0 || iy > FIELD_SEG) continue;
           const wx = ix * CELL - FIELD_HW;
@@ -1107,28 +1339,32 @@
           if (d > DIG_RADIUS) continue;
           const idx = iy * (FIELD_SEG + 1) + ix;
           const h = fieldPos.getY(idx);
-          if (h <= target + 0.001) continue;
+          if (h <= DIG_MIN + 0.001) continue;
           const fall = 1 - d / DIG_RADIUS;
-          const lower = Math.min(h - target, rate * (0.4 + 0.6 * fall));
-          if (lower <= 0) continue;
-          const nh = h - lower;
+          let cut = Math.min(cutRate * (0.4 + 0.6 * fall), h - DIG_MIN);
+          if (cut * volCell > remM3) cut = remM3 / volCell;
+          if (cut <= 0.0001) continue;
+          const nh = h - cut;
           fieldPos.setY(idx, nh);
           setVertColor(idx, nh);
-          bucketLoad = Math.min(LOAD_CAP, bucketLoad + lower * 0.16);
+          const v = cut * volCell;
+          bucketLoad = Math.min(LOAD_CAP, bucketLoad + v / BUCKET_M3);
+          remM3 -= v;
           changed = true;
         }
       }
       return changed;
     }
 
-    // 刃先直下に盛土（排土）
-    function pileBrush(cx, cz, amount) {
+    // 刃先直下に体積 volM3 を盛土（排土）。重み付けで体積保存的に分配。
+    function pileBrush(cx, cz, volM3) {
       const R = DIG_RADIUS + 0.5;
       const rad = Math.ceil(R / CELL);
       const ixc = Math.round((cx + FIELD_HW) / CELL);
       const izc = Math.round((FIELD_HW + cz) / CELL);
-      const rise = amount * 2.2;
-      let changed = false;
+      const volCell = CELL * CELL;
+      const cells = [];
+      let S = 0;
       for (let dz = -rad; dz <= rad; dz++) {
         for (let dx = -rad; dx <= rad; dx++) {
           const ix = ixc + dx, iy = izc + dz;
@@ -1137,15 +1373,21 @@
           const wz = iy * CELL - FIELD_HW;
           const d = Math.hypot(wx - cx, wz - cz);
           if (d > R) continue;
-          const idx = iy * (FIELD_SEG + 1) + ix;
-          const h = fieldPos.getY(idx);
-          const fall = 1 - d / R;
-          const nh = Math.min(PILE_MAX, h + rise * fall * fall);
-          if (nh - h < 0.0005) continue;
-          fieldPos.setY(idx, nh);
-          setVertColor(idx, nh);
-          changed = true;
+          const w = 1 - d / R, ww = w * w;
+          S += ww * volCell;
+          cells.push([iy * (FIELD_SEG + 1) + ix, ww]);
         }
+      }
+      if (S <= 0) return false;
+      const peak = volM3 / S;
+      let changed = false;
+      for (const [idx, ww] of cells) {
+        const h = fieldPos.getY(idx);
+        const nh = Math.min(PILE_MAX, h + peak * ww);
+        if (nh - h < 0.0002) continue;
+        fieldPos.setY(idx, nh);
+        setVertColor(idx, nh);
+        changed = true;
       }
       return changed;
     }
@@ -1165,18 +1407,23 @@
     function updateDigging(dt) {
       bucketTip.getWorldPosition(_tip);
       const groundH = heightAtWorld(_tip.x, _tip.z);
-      const penetrating = _tip.y < groundH - 0.02;
-      // バケット: value大=閉じる(掬う) / 小=開く(排土)。
-      // 可動域[-2.35..0.35]なので、十分に開いた時だけ排土と判定する。
+      // 刃先が地表に接触(わずかに上でも可)していれば掬えるよう判定を緩める。
+      const contacting = _tip.y < groundH + 0.12;
+      // バケット: value大=閉じる(掬う) / 小=開く(排土)。十分に開いた時だけ排土。
       const isOpen = joints.bucket.value < -1.3;
 
       let changed = false;
-      if (penetrating && bucketLoad < LOAD_CAP && !isOpen) {
-        changed = digBrush(_tip.x, _tip.z, _tip.y, dt);
+      if (contacting && bucketLoad < LOAD_CAP && !isOpen) {
+        // 刃先接触中はフットプリントの表土を削り取り、体積を積載（山頂でも掬える）。
+        changed = digBrush(_tip.x, _tip.z, dt);
       } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
         const drop = Math.min(bucketLoad, dt * 0.7);
         bucketLoad -= drop;
-        changed = pileBrush(_tip.x, _tip.z, drop);
+        const dropM3 = drop * BUCKET_M3;
+        dumpedTotal += dropM3; // 落とした土量を積算(m³)
+        const dv = document.getElementById('dumpVol');
+        if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
+        changed = pileBrush(_tip.x, _tip.z, dropM3);
       }
 
       updateSoilVisual();
