@@ -580,10 +580,31 @@
     armPin.rotation.z = Math.PI / 2;
     arm.add(armPin);
 
-    // アーム基部のヒール（隆起）— アームシリンダーの取付点を持ち上げる
-    const armHeel = mesh(new THREE.BoxGeometry(0.38, 0.72, 0.55), matBody);
-    armHeel.position.set(0, 0.32, 0.08);
-    arm.add(armHeel);
+    // アーム基部のシリンダー取付ボス（両側の三角プレート＋ピン）。写真準拠。
+    // シリンダーをアーム上面より高い位置で受け、ビームとの干渉を避ける。
+    function makeArmHeel() {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.25, 0.18);  // 後ろ(ブーム側)下
+      sh.lineTo(0.55, 0.18);   // 前(先端側)下
+      sh.lineTo(0.02, 0.86);   // 頂点(ピン位置)
+      sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false });
+      g.rotateY(-Math.PI / 2);
+      g.translate(0.06, 0, 0);
+      g.computeVertexNormals();
+      return g;
+    }
+    const heelGeo = makeArmHeel();
+    for (const sx of [-0.15, 0.15]) {
+      const e = mesh(heelGeo, matBody);
+      e.position.x = sx;
+      arm.add(e);
+    }
+    // 取付ピン（左右プレート間を貫通）= アームシリンダー取付点
+    const heelPin = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 12), matDark);
+    heelPin.rotation.z = Math.PI / 2;
+    heelPin.position.set(0, 0.86, 0.02);
+    arm.add(heelPin);
 
     // アーム上面のバケットシリンダー取付ブラケット
     const armBkt = mesh(new THREE.BoxGeometry(0.36, 0.5, 0.6), matBody);
@@ -665,35 +686,41 @@
     //  linkNode にバケットシリンダーのロッド端が付く。
     // =========================================================
     const idlerAnchor = new THREE.Object3D();
-    idlerAnchor.position.set(0, 0.48, ARM_LEN - 0.45);
+    idlerAnchor.position.set(0, 0.1, ARM_LEN - 0.35);
     arm.add(idlerAnchor);
-    // アーム上面から立ち上がるアイドラリンク取付ブラケット
-    const idlerBracket = mesh(new THREE.BoxGeometry(0.3, 0.55, 0.32), matBody);
-    idlerBracket.position.set(0, 0.26, ARM_LEN - 0.45);
-    arm.add(idlerBracket);
+    // アーム側面のアイドラリンク取付ピン（横向き円柱・左右に貫通）
+    const idlerPin = mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.56, 12), matDark);
+    idlerPin.rotation.z = Math.PI / 2;
+    idlerPin.position.copy(idlerAnchor.position);
+    arm.add(idlerPin);
 
     const bucketLug = new THREE.Object3D();
-    bucketLug.position.set(0, -0.5, 0.26); // バケット背面下側のリンクピン。カタログ準拠。
+    bucketLug.position.set(0, -0.2, 0.42); // 三角ガセットの頂点＝パワーリンクのピン
     bucket.add(bucketLug);
-    // バケット背面の三角ガセット（リンク取付の耳）を左右に。頂点=ピン位置。
+    // バケット背面の三角ガセット（1.5倍に拡大）。頂点にリンクを取り付ける。
     function makeLugGusset() {
       const sh = new THREE.Shape();
-      sh.moveTo(0.1, -0.18);  // 背板上側
-      sh.lineTo(0.1, -0.82);  // 背板下側
-      sh.lineTo(0.3, -0.5);   // 頂点(ピン側へ突出)
+      sh.moveTo(0.08, 0.05);  // 背側 上
+      sh.lineTo(0.08, -0.85); // 背側 下
+      sh.lineTo(0.42, -0.2);  // 頂点（ピン位置・突出）
       sh.closePath();
-      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.07, bevelEnabled: false });
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.08, bevelEnabled: false });
       g.rotateY(-Math.PI / 2);
-      g.translate(0.035, 0, 0);
+      g.translate(0.04, 0, 0);
       g.computeVertexNormals();
       return g;
     }
     const lugGeo = makeLugGusset();
-    for (const sx of [-0.13, 0.13]) {
+    for (const sx of [-0.2, 0.2]) {
       const ear = mesh(lugGeo, matBody);
       ear.position.x = sx;
       bucket.add(ear);
     }
+    // 頂点を左右に貫通するピン
+    const lugPin = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 12), matDark);
+    lugPin.rotation.z = Math.PI / 2;
+    lugPin.position.set(0, -0.2, 0.42);
+    bucket.add(lugPin);
 
     const linkNode = new THREE.Object3D(); // ロッド端＝2リンクの結節点(scene座標)
     scene.add(linkNode);
@@ -708,7 +735,7 @@
     }
     const idlerBars = addLinkPair(); // idlerAnchor → node（左右）
     const powerBars = addLinkPair(); // bucketLug  → node（左右）
-    const LINK_HALF = 0.26;          // 左右リンクのXオフセット
+    const LINK_HALF = 0.24;          // 左右リンクのXオフセット(アーム側面の外側)
 
     // =========================================================
     //  油圧シリンダー（関節連動でロッドが伸縮）
@@ -790,7 +817,7 @@
         // 初期姿勢から各リンク長を確定。結節点を先端側(+z)・やや上に置き、
         // アーム側(アイドラ)リンクを長くする（赤スケッチ/カタログ準拠）。
         prevNy = (_p1.y + _p2.y) / 2 + 0.45;
-        prevNz = _p2.z - 0.2;
+        prevNz = (_p1.z + _p2.z) / 2;
         L_idler = Math.hypot(prevNy - _p1.y, prevNz - _p1.z);
         L_power = Math.hypot(prevNy - _p2.y, prevNz - _p2.z);
         linkInit = true;
@@ -833,10 +860,10 @@
       boom,  new THREE.Vector3(0, boomCenterY(2.2) - boomHalf(2.2) - 0.04, 2.2),
       { barrelLen: 1.7, barrelR: 0.15, rodR: 0.09 }
     );
-    // アームシリンダー: ブーム上面ブラケット → アーム基部ヒール上端
+    // アームシリンダー: ブーム上面ブラケット → アーム基部の三角ボス頂点ピン
     addHydraulic(
       boom, new THREE.Vector3(0, boomCenterY(boomBktZ) + boomHalf(boomBktZ) + 0.3, boomBktZ),
-      arm,  new THREE.Vector3(0, 0.58, 0.08),
+      arm,  new THREE.Vector3(0, 0.86, 0.02),
       { barrelLen: 1.4, barrelR: 0.13, rodR: 0.08 }
     );
     // バケットシリンダー: アーム上面ブラケット → H型リンクの結節点(linkNode)
