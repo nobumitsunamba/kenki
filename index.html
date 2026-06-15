@@ -120,6 +120,10 @@
       margin-top: 6px; color: #fff; font-size: 13px; font-weight: bold;
       text-shadow: 0 1px 3px rgba(0,0,0,0.6);
     }
+    #truckInfo {
+      margin-top: 4px; color: #ffe9a8; font-size: 14px; font-weight: bold;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+    }
   </style>
 
   <!-- Three.js を importmap で読み込む（ビルド不要） -->
@@ -140,6 +144,7 @@
     <div id="loadLabel">バケット土量</div>
     <div id="loadBar"><div id="loadFill"></div></div>
     <div id="dumpVol">排土量 0.00 m³</div>
+    <div id="truckInfo">トラック 0.0 / 4.0 m³　｜　完了 0台</div>
   </div>
 
   <div id="controls">
@@ -1455,6 +1460,68 @@
         0x6a6a6a, 0.25, 0.7 + intensity * 0.5, 1.2, 0.28 + intensity * 0.2);
     }
 
+    // =========================================================
+    //  ゲームループ: ダンプトラックに積む
+    // =========================================================
+    const TRUCK_TARGET = 4.0;                               // 1台あたり目標(m³)
+    const TRUCK_HOME = new THREE.Vector3(-5.5, 0, -1.5);    // 待機(積込)位置
+    const matTruck = new THREE.MeshStandardMaterial({ color: 0xE3A82A, roughness: 0.5, metalness: 0.3, envMapIntensity: 0.7 });
+    const truckGroup = new THREE.Group();
+    scene.add(truckGroup);
+    let truckSoil;
+    const TBED = { bw: 2.1, bl: 2.9, wallH: 0.7, fy: 1.15, bz: -1.0 }; // 荷台寸法/位置(ローカル)
+    (function buildTruck() {
+      const g = truckGroup;
+      const chassis = mesh(new THREE.BoxGeometry(2.2, 0.45, 5.0), matDark2); chassis.position.set(0, 0.85, 0); g.add(chassis);
+      const tcab = mesh(rbox(1.95, 1.25, 1.4, 0.12), matTruck); tcab.position.set(0, 1.65, 1.85); g.add(tcab);
+      const tg = mesh(new THREE.BoxGeometry(1.7, 0.62, 0.05), matCabGlass); tg.position.set(0, 1.85, 2.56); g.add(tg);
+      const { bw, bl, wallH, fy, bz } = TBED;
+      const floor = mesh(new THREE.BoxGeometry(bw, 0.12, bl), matDark); floor.position.set(0, fy, bz); g.add(floor);
+      const wF = mesh(new THREE.BoxGeometry(bw, wallH, 0.1), matTruck); wF.position.set(0, fy + wallH / 2, bz + bl / 2); g.add(wF);
+      const wB = mesh(new THREE.BoxGeometry(bw, wallH, 0.1), matTruck); wB.position.set(0, fy + wallH / 2, bz - bl / 2); g.add(wB);
+      for (const sx of [-1, 1]) { const w = mesh(new THREE.BoxGeometry(0.1, wallH, bl), matTruck); w.position.set(sx * bw / 2, fy + wallH / 2, bz); g.add(w); }
+      truckSoil = mesh(new THREE.BoxGeometry(bw - 0.16, 1, bl - 0.16), matSoil);
+      truckSoil.position.set(0, fy + 0.06, bz); truckSoil.scale.y = 0.02; truckSoil.visible = false; g.add(truckSoil);
+      for (const sx of [-1.05, 1.05]) for (const sz of [-1.6, 0.1, 1.7]) {
+        const wh = mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.35, 16), matDark);
+        wh.rotation.z = Math.PI / 2; wh.position.set(sx, 0.5, sz); g.add(wh);
+      }
+    })();
+    truckGroup.position.copy(TRUCK_HOME);
+
+    let truckLoad = 0, trucksDone = 0, truckState = 'loading';
+    function updateTruckHUD() {
+      const el = document.getElementById('truckInfo');
+      if (el) el.textContent = `トラック ${truckLoad.toFixed(1)} / ${TRUCK_TARGET.toFixed(1)} m³ ｜ 完了 ${trucksDone}台`;
+    }
+    updateTruckHUD();
+    // バケットから落とした土が荷台に入れば積込(true)。満載で発車。
+    function truckTryLoad(x, y, z, volM3) {
+      if (truckState !== 'loading') return false;
+      const p = truckGroup.position, fY = p.y + TBED.fy;
+      if (y < fY - 0.1 || y > fY + 2.4) return false;
+      if (Math.abs(x - p.x) > TBED.bw / 2 + 0.2) return false;
+      if (Math.abs(z - (p.z + TBED.bz)) > TBED.bl / 2 + 0.2) return false;
+      truckLoad = Math.min(TRUCK_TARGET, truckLoad + volM3);
+      const hgt = Math.max(0.02, (truckLoad / TRUCK_TARGET) * TBED.wallH * 0.95);
+      truckSoil.scale.y = hgt; truckSoil.position.y = TBED.fy + 0.06 + hgt / 2; truckSoil.visible = true;
+      if (truckLoad >= TRUCK_TARGET) { truckState = 'leaving'; trucksDone++; }
+      updateTruckHUD();
+      return true;
+    }
+    function updateTruck(dt) {
+      if (truckState === 'leaving') {
+        truckGroup.position.x += 5 * dt;
+        if (truckGroup.position.x > TRUCK_HOME.x + 16) {
+          truckGroup.position.x = TRUCK_HOME.x - 16;
+          truckLoad = 0; truckSoil.visible = false; truckSoil.scale.y = 0.02;
+          truckState = 'arriving'; updateTruckHUD();
+        }
+      } else if (truckState === 'arriving') {
+        truckGroup.position.x += 5 * dt;
+        if (truckGroup.position.x >= TRUCK_HOME.x) { truckGroup.position.x = TRUCK_HOME.x; truckState = 'loading'; }
+      }
+    }
 
     function digBrush(cx, cz, dt) {
       const rad = Math.ceil(DIG_RADIUS / CELL);
@@ -1560,11 +1627,16 @@
         const drop = Math.min(bucketLoad, dt * 0.7);
         bucketLoad -= drop;
         const dropM3 = drop * BUCKET_M3;
-        dumpedTotal += dropM3; // 落とした土量を積算(m³)
-        const dv = document.getElementById('dumpVol');
-        if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
-        changed = pileBrush(_tip.x, _tip.z, dropM3);
-        spawnSoil(_tip.x, _tip.y, _tip.z, 3); // 落ちる土砂
+        if (truckTryLoad(_tip.x, _tip.y, _tip.z, dropM3)) {
+          // 荷台に積込み（地面は変えない）
+          spawnSoil(_tip.x, _tip.y, _tip.z, 3);
+        } else {
+          dumpedTotal += dropM3; // 地面に排土した量を積算(m³)
+          const dv = document.getElementById('dumpVol');
+          if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
+          changed = pileBrush(_tip.x, _tip.z, dropM3);
+          spawnSoil(_tip.x, _tip.y, _tip.z, 3); // 落ちる土砂
+        }
         camShake = Math.max(camShake, 0.12); // 排土の軽い揺れ
       }
 
@@ -1608,6 +1680,7 @@
       updateLinkage();
       updateHydraulics();
       updateDigging(dt);
+      updateTruck(dt);
 
       // 排気の煙（操作量に応じてエンジン回転＝煙量を増やす）
       const eng = Math.min(1, Math.abs(ax('ly')) + Math.abs(ax('ry')) + Math.abs(ax('rx')) + Math.abs(ax('lx')) + Math.abs(ax('ty')) + Math.abs(ax('tx')));
