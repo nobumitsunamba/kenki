@@ -1553,7 +1553,7 @@
         // 刃先接触中はフットプリントの表土を削り取り、体積を積載（山頂でも掬える）。
         changed = digBrush(_tip.x, _tip.z, dt);
         if (changed) {
-          camShake = Math.min(0.08, camShake + 0.12 * dt); // 掘削の振動
+          camShake = 0.28; // 掘削の振動（見える強さで毎フレーム再セット）
           if (navigator.vibrate) { vibAccum += dt; if (vibAccum > 0.18) { vibAccum = 0; navigator.vibrate(12); } }
         }
       } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
@@ -1565,6 +1565,7 @@
         if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
         changed = pileBrush(_tip.x, _tip.z, dropM3);
         spawnSoil(_tip.x, _tip.y, _tip.z, 3); // 落ちる土砂
+        camShake = Math.max(camShake, 0.12); // 排土の軽い揺れ
       }
 
       updateSoilParticles(dt);
