@@ -116,12 +116,8 @@
       background: linear-gradient(90deg, #c39a5e, #8a6233);
       transition: width 0.08s linear;
     }
-    #dumpVol {
-      margin-top: 6px; color: #fff; font-size: 13px; font-weight: bold;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-    }
     #truckInfo {
-      margin-top: 4px; color: #ffe9a8; font-size: 14px; font-weight: bold;
+      margin-top: 6px; color: #ffe9a8; font-size: 14px; font-weight: bold;
       text-shadow: 0 1px 3px rgba(0,0,0,0.7);
     }
   </style>
@@ -143,33 +139,32 @@
   <div id="hud">
     <div id="loadLabel">バケット土量</div>
     <div id="loadBar"><div id="loadFill"></div></div>
-    <div id="dumpVol">排土量 0.00 m³</div>
     <div id="truckInfo">トラック 0.0 / 4.0 m³　｜　完了 0台</div>
   </div>
 
   <div id="controls">
     <div class="stick" id="stickLeft">
       <div class="label">左レバー</div>
-      <div class="axis-hint top">アーム伸</div>
-      <div class="axis-hint bottom">アーム縮</div>
-      <div class="axis-hint left">旋回左</div>
-      <div class="axis-hint right">旋回右</div>
+      <div class="axis-hint top">アーム伸<br>(W)</div>
+      <div class="axis-hint bottom">アーム縮<br>(S)</div>
+      <div class="axis-hint left">旋回左<br>(A)</div>
+      <div class="axis-hint right">旋回右<br>(D)</div>
       <div class="knob" id="knobLeft"></div>
     </div>
     <div class="stick travel" id="stickTravel">
       <div class="label">走行</div>
-      <div class="axis-hint top">前進</div>
-      <div class="axis-hint bottom">後進</div>
-      <div class="axis-hint left">左</div>
-      <div class="axis-hint right">右</div>
+      <div class="axis-hint top">前進<br>(T)</div>
+      <div class="axis-hint bottom">後進<br>(G)</div>
+      <div class="axis-hint left">左<br>(F)</div>
+      <div class="axis-hint right">右<br>(H)</div>
       <div class="knob" id="knobTravel"></div>
     </div>
     <div class="stick" id="stickRight">
       <div class="label">右レバー</div>
-      <div class="axis-hint top">ブーム下</div>
-      <div class="axis-hint bottom">ブーム上</div>
-      <div class="axis-hint left">バケット閉</div>
-      <div class="axis-hint right">バケット開</div>
+      <div class="axis-hint top">ブーム下<br>(↑)</div>
+      <div class="axis-hint bottom">ブーム上<br>(↓)</div>
+      <div class="axis-hint left">バケット閉<br>(←)</div>
+      <div class="axis-hint right">バケット開<br>(→)</div>
       <div class="knob" id="knobRight"></div>
     </div>
   </div>
@@ -1356,7 +1351,6 @@
     const BUCKET_M3  = 0.8;     // バケット満杯=0.8m³ (SK200 0.8m³級)
     const DIG_RADIUS = 0.7;     // 掘削ブラシ半径(バケット幅相当)
     let   bucketLoad = 0;       // 現在の積載量 0..1
-    let   dumpedTotal = 0;      // 排土量の積算(m³)
     const _tip = new THREE.Vector3();
     let   fieldChanged = false; // この変形で頂点が動いたか
     let   normAccum = 0;        // 法線再計算の間引き用
@@ -1633,9 +1627,6 @@
           // 荷台に積込み（地面は変えない）
           spawnSoil(_tip.x, _tip.y, _tip.z, 3);
         } else {
-          dumpedTotal += dropM3; // 地面に排土した量を積算(m³)
-          const dv = document.getElementById('dumpVol');
-          if (dv) dv.textContent = '排土量 ' + dumpedTotal.toFixed(2) + ' m³';
           changed = pileBrush(_tip.x, _tip.z, dropM3);
           spawnSoil(_tip.x, _tip.y, _tip.z, 3); // 落ちる土砂
         }
