@@ -1511,17 +1511,17 @@
       return true;
     }
     function updateTruck(dt) {
-      // 満載で右(+x)へ発車 → 右から空車が入線（機体を横切らない）
+      // 満載で前進(+z)して発車 → 次の車は後方(-z)から前進して入線
       if (truckState === 'leaving') {
-        truckGroup.position.x += 6 * dt;
-        if (truckGroup.position.x > TRUCK_HOME.x + 13) {
-          truckGroup.position.x = TRUCK_HOME.x + 13;
+        truckGroup.position.z += 6 * dt;
+        if (truckGroup.position.z > TRUCK_HOME.z + 14) {
+          truckGroup.position.z = TRUCK_HOME.z - 14;
           truckLoad = 0; truckSoil.visible = false; truckSoil.scale.y = 0.02;
           truckState = 'arriving'; updateTruckHUD();
         }
       } else if (truckState === 'arriving') {
-        truckGroup.position.x -= 6 * dt;
-        if (truckGroup.position.x <= TRUCK_HOME.x) { truckGroup.position.x = TRUCK_HOME.x; truckState = 'loading'; }
+        truckGroup.position.z += 6 * dt;
+        if (truckGroup.position.z >= TRUCK_HOME.z) { truckGroup.position.z = TRUCK_HOME.z; truckState = 'loading'; }
       }
     }
 
@@ -1622,7 +1622,7 @@
         // 刃先接触中はフットプリントの表土を削り取り、体積を積載（山頂でも掬える）。
         changed = digBrush(_tip.x, _tip.z, dt);
         if (changed) {
-          camShake = 0.28; // 掘削の振動（見える強さで毎フレーム再セット）
+          camShake = 0.1; // 掘削の振動（機体のみ揺らす）
           if (navigator.vibrate) { vibAccum += dt; if (vibAccum > 0.18) { vibAccum = 0; navigator.vibrate(12); } }
         }
       } else if (isOpen && bucketLoad > 0 && _tip.y > groundH + 0.05) {
@@ -1639,7 +1639,7 @@
           changed = pileBrush(_tip.x, _tip.z, dropM3);
           spawnSoil(_tip.x, _tip.y, _tip.z, 3); // 落ちる土砂
         }
-        camShake = Math.max(camShake, 0.12); // 排土の軽い揺れ
+        camShake = Math.max(camShake, 0.05); // 排土の軽い揺れ
       }
 
       updateSoilParticles(dt);
@@ -1679,10 +1679,20 @@
       const dt = Math.min(clock.getDelta(), 0.05);
       updateTravel(dt);
       updateJoints(dt);
-      updateLinkage();
-      updateHydraulics();
-      updateDigging(dt);
+      updateDigging(dt);   // 物理は実位置で処理（揺れは後で機体だけに適用）
       updateTruck(dt);
+
+      // 機体のみ揺らす: base を一時オフセット（地面・トラック・カメラは揺れない）
+      const tx = base.position.x, ty = base.position.y, tz = base.position.z;
+      if (camShake > 0.002) {
+        base.position.x += (Math.random() - 0.5) * camShake;
+        base.position.y += (Math.random() - 0.5) * camShake * 0.6;
+        base.position.z += (Math.random() - 0.5) * camShake;
+        camShake *= Math.max(0, 1 - dt * 8); // 減衰
+      } else camShake = 0;
+
+      updateLinkage();     // 揺れた機体に油圧シリンダー/リンクを追従
+      updateHydraulics();
 
       // 排気の煙（操作量に応じてエンジン回転＝煙量を増やす）
       const eng = Math.min(1, Math.abs(ax('ly')) + Math.abs(ax('ry')) + Math.abs(ax('rx')) + Math.abs(ax('lx')) + Math.abs(ax('ty')) + Math.abs(ax('tx')));
@@ -1690,16 +1700,12 @@
       if (exhAccum > 0.12 - eng * 0.06) { exhAccum = 0; emitExhaust(eng); }
       updatePuffs(dt);
 
-      // カメラは機体を追従（一定のオフセットで見下ろす）＋シェイク
-      camera.position.set(base.position.x + 9, 7, base.position.z + 12);
-      if (camShake > 0.0005) {
-        camera.position.x += (Math.random() - 0.5) * camShake;
-        camera.position.y += (Math.random() - 0.5) * camShake;
-        camera.position.z += (Math.random() - 0.5) * camShake;
-        camShake *= Math.max(0, 1 - dt * 6); // 減衰
-      }
-      camera.lookAt(base.position.x, 1.4, base.position.z);
+      // カメラは実位置基準で追従（揺らさない）
+      camera.position.set(tx + 9, 7, tz + 12);
+      camera.lookAt(tx, 1.4, tz);
       renderer.render(scene, camera);
+
+      base.position.set(tx, ty, tz); // 実位置へ戻す
       requestAnimationFrame(animate);
     }
     animate();
