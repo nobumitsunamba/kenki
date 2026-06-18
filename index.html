@@ -678,7 +678,6 @@
       }
       // 前面(ウィンドシールド)枠
       bar([xL, yB, zF], [xR, yB, zF]);      // 前下
-      bar([xL, yBend, zF], [xR, yBend, zF]);// 屈曲(上下ガラス境)
       bar([xL, yT, zFt], [xR, yT, zFt]);    // ルーフ前
       // 後面・ルーフ後
       bar([xL, yT, zR], [xR, yT, zR]);
@@ -1315,6 +1314,7 @@
     const TRAVEL_SPEED = 1.6; // 前後速度(m/s)
     const TURN_SPEED   = 0.5; // 旋回速度(rad/s)
     function updateTravel(dt) {
+      const px = base.position.x, pz = base.position.z; // 移動前
       // 旋回: 左に倒す(tx<0)→左旋回(+Y)
       base.rotation.y -= ax('tx') * TURN_SPEED * dt;
       // 前後: 上に倒す(ty<0)→前進。機体前方は base ローカル +Z。
@@ -1326,9 +1326,23 @@
       const lim = FIELD_HW - 6;
       base.position.x = clamp(base.position.x, -lim, lim);
       base.position.z = clamp(base.position.z, -lim, lim);
+      // トラックと衝突したら移動を取り消して(その場で停止)機体を振動させる
+      if (collideTruck()) {
+        base.position.x = px; base.position.z = pz;
+        camShake = Math.max(camShake, 0.16);
+        if (navigator.vibrate) { vibAccum += dt; if (vibAccum > 0.2) { vibAccum = 0; navigator.vibrate(30); } }
+      }
       // 走行時の土埃
       const moving = Math.abs(ax('ty')) > 0.05 || Math.abs(ax('tx')) > 0.05;
       if (moving) { dustAccum += dt; if (dustAccum > 0.08) { dustAccum = 0; emitDriveDust(); } }
+    }
+    // 機体(下部体・円近似)とトラック(AABB)の衝突判定
+    function collideTruck() {
+      const E = base.position, rE = 2.6, T = truckGroup.position, hx = 1.4, hz = 3.8;
+      const cx = Math.max(T.x - hx, Math.min(E.x, T.x + hx));
+      const cz = Math.max(T.z - hz, Math.min(E.z, T.z + hz));
+      const dx = E.x - cx, dz = E.z - cz;
+      return dx * dx + dz * dz < rE * rE;
     }
     let dustAccum = 0;
 
