@@ -1377,17 +1377,25 @@
       return mp;
     }
 
-    // 作業機(バケット)がトラックの固体部に衝突しているか（荷台開口=上から積む範囲は通す）
+    // 作業機(バケット)がトラックの固体部に衝突しているか。
+    // トラックの実体パーツ(シャシ/キャブ/荷台の床・壁)ごとの箱で精密判定。
+    // 荷台の開口(壁の内側・床より上)は空洞なので、上から積む動作は通る。
+    const TRUCK_SOLIDS = [
+      [-1.25, 1.25, 0.70, 1.20, -3.60, 3.60], // シャシ
+      [-1.15, 1.15, 1.00, 2.70,  1.70, 3.70], // キャブ
+      [-1.20, 1.20, 1.18, 1.34, -3.50, 0.70], // 荷台 床
+      [-1.20, 1.20, 1.25, 2.15,  0.55, 0.80], // 荷台 前壁
+      [-1.20, 1.20, 1.25, 2.15, -3.60, -3.35],// 荷台 後壁
+      [-1.25, -1.05, 1.25, 2.15, -3.50, 0.70],// 荷台 左壁
+      [ 1.05, 1.25, 1.25, 2.15, -3.50, 0.70], // 荷台 右壁
+    ];
     function pointInTruckSolid(P) {
       const T = truckGroup.position;
-      if (P.x < T.x - 1.35 || P.x > T.x + 1.35) return false;
-      if (P.z < T.z - 3.9 || P.z > T.z + 3.9) return false;
-      if (P.y < 0 || P.y > 2.8) return false;
-      // 荷台の開口内（床より上・荷台枠内）は許可（ダンプ可能に）
-      const inBedX = Math.abs(P.x - T.x) < TBED.bw / 2;
-      const inBedZ = Math.abs(P.z - (T.z + TBED.bz)) < TBED.bl / 2;
-      if (inBedX && inBedZ && P.y > T.y + TBED.fy + 0.05) return false;
-      return true;
+      const x = P.x - T.x, y = P.y - T.y, z = P.z - T.z;
+      for (const b of TRUCK_SOLIDS) {
+        if (x >= b[0] && x <= b[1] && y >= b[2] && y <= b[3] && z >= b[4] && z <= b[5]) return true;
+      }
+      return false;
     }
     function workHitsTruck() {
       bucket.updateWorldMatrix(true, false);
