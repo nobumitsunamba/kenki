@@ -632,23 +632,58 @@
       g.rotateY(-Math.PI / 2); g.translate(0.01, 0, 0); g.computeVertexNormals();
       return g;
     }
+    const cabGlasses = []; // 運転席視点では非表示にするガラス群
     const cabWinRear = makeCabWindowRear(), cabWinFront = makeCabWindowFront();
     for (const sx of [CAB_X + CAB_W / 2 + 0.05, CAB_X - CAB_W / 2 - 0.03]) {
-      const gr = mesh(cabWinRear, matCabGlass); gr.position.set(sx, CAB_Y, CAB_Z); swing.add(gr);
-      const gf = mesh(cabWinFront, matCabGlass); gf.position.set(sx, CAB_Y, CAB_Z); swing.add(gf);
+      const gr = mesh(cabWinRear, matCabGlass); gr.position.set(sx, CAB_Y, CAB_Z); swing.add(gr); cabGlasses.push(gr);
+      const gf = mesh(cabWinFront, matCabGlass); gf.position.set(sx, CAB_Y, CAB_Z); swing.add(gf); cabGlasses.push(gf);
     }
     // 前面ウィンドシールド: 下部(垂直)＋上部(傾斜)の2枚。境目フレームなしで連続。上下端のみフレーム。
     const wsLower = mesh(new THREE.BoxGeometry(0.66, 0.84, 0.02), matCabGlass);
     wsLower.position.set(CAB_X, CAB_Y - 0.22, CAB_Z + 0.95);
-    swing.add(wsLower);
+    swing.add(wsLower); cabGlasses.push(wsLower);
     const wsUpper = mesh(new THREE.BoxGeometry(0.66, 0.66, 0.02), matCabGlass);
     wsUpper.position.set(CAB_X, CAB_Y + 0.50, CAB_Z + 0.78); // 斜面の外側へ
     wsUpper.rotation.x = -0.6;
-    swing.add(wsUpper);
+    swing.add(wsUpper); cabGlasses.push(wsUpper);
     // 後面ガラス（フレームを残す）
     const glassRear = mesh(new THREE.BoxGeometry(0.62, 1.0, 0.02), matCabGlass);
     glassRear.position.set(CAB_X, CAB_Y + 0.18, CAB_Z - 0.9 - 0.04);
-    swing.add(glassRear);
+    swing.add(glassRear); cabGlasses.push(glassRear);
+
+    // 運転席視点用の窓枠（フレーム）。通常は非表示、運転席視点でのみ表示。
+    const cabFrame = new THREE.Group(); cabFrame.visible = false; swing.add(cabFrame);
+    {
+      const xL = CAB_X - CAB_W / 2, xR = CAB_X + CAB_W / 2;       // 0.28 / 1.30
+      const yB = CAB_Y - 0.78, yT = CAB_Y + 0.78;                 // 0.42 / 1.98
+      const yBend = CAB_Y + 0.18;                                 // 1.38 ウィンドシールド屈曲
+      const zF = CAB_Z + 0.9, zFt = CAB_Z + 0.5, zR = CAB_Z - 0.9, zMid = CAB_Z; // 前下/前上/後/中央
+      const FR = 0.05; // 窓枠の太さ(半径)
+      const up = new THREE.Vector3(0, 1, 0), _a = new THREE.Vector3(), _b = new THREE.Vector3();
+      const bar = (a, b) => {
+        _a.set(a[0], a[1], a[2]); _b.set(b[0], b[1], b[2]);
+        const len = _a.distanceTo(_b);
+        const m = mesh(new THREE.CylinderGeometry(FR, FR, len, 8), matCab);
+        m.position.copy(_a).lerp(_b, 0.5);
+        m.quaternion.setFromUnitVectors(up, _b.clone().sub(_a).normalize());
+        cabFrame.add(m);
+      };
+      for (const x of [xL, xR]) {
+        bar([x, yB, zF], [x, yBend, zF]);   // Aピラー(前・垂直)
+        bar([x, yBend, zF], [x, yT, zFt]);  // Aピラー(前上・傾斜)
+        bar([x, yB, zR], [x, yT, zR]);      // Cピラー(後)
+        bar([x, yB, zMid], [x, yT, zMid]);  // Bピラー(中央・側窓分割)
+        bar([x, yT, zFt], [x, yT, zR]);     // ルーフ サイドレール
+        bar([x, yB, zF], [x, yB, zR]);      // 下レール(サイド)
+      }
+      // 前面(ウィンドシールド)枠
+      bar([xL, yB, zF], [xR, yB, zF]);      // 前下
+      bar([xL, yBend, zF], [xR, yBend, zF]);// 屈曲(上下ガラス境)
+      bar([xL, yT, zFt], [xR, yT, zFt]);    // ルーフ前
+      // 後面・ルーフ後
+      bar([xL, yT, zR], [xR, yT, zR]);
+      bar([xL, yB, zR], [xR, yB, zR]);
+    }
 
     // 運転席視点用のアンカー（旋回体に追従）。eye=操作席, look=前方の作業域。
     const camEye = new THREE.Object3D();
@@ -1688,10 +1723,14 @@
     const _camP = new THREE.Vector3(), _camT = new THREE.Vector3();
     function toggleView() {
       viewMode = viewMode === 'follow' ? 'cabin' : 'follow';
-      camera.fov = viewMode === 'cabin' ? 68 : 50;
+      const cabin = viewMode === 'cabin';
+      camera.fov = cabin ? 68 : 50;
       camera.updateProjectionMatrix();
+      // 運転席視点ではガラスを隠して窓枠を表示（視界を確保）
+      for (const g of cabGlasses) g.visible = !cabin;
+      cabFrame.visible = cabin;
       const b = document.getElementById('viewBtn');
-      if (b) b.textContent = viewMode === 'cabin' ? '視点:運転席' : '視点:俯瞰';
+      if (b) b.textContent = cabin ? '視点:運転席' : '視点:俯瞰';
     }
     document.getElementById('viewBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleView(); });
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyV') toggleView(); });
