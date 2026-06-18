@@ -1377,8 +1377,32 @@
       return mp;
     }
 
+    // 作業機(バケット)がトラックの固体部に衝突しているか（荷台開口=上から積む範囲は通す）
+    function pointInTruckSolid(P) {
+      const T = truckGroup.position;
+      if (P.x < T.x - 1.35 || P.x > T.x + 1.35) return false;
+      if (P.z < T.z - 3.9 || P.z > T.z + 3.9) return false;
+      if (P.y < 0 || P.y > 2.8) return false;
+      // 荷台の開口内（床より上・荷台枠内）は許可（ダンプ可能に）
+      const inBedX = Math.abs(P.x - T.x) < TBED.bw / 2;
+      const inBedZ = Math.abs(P.z - (T.z + TBED.bz)) < TBED.bl / 2;
+      if (inBedX && inBedZ && P.y > T.y + TBED.fy + 0.05) return false;
+      return true;
+    }
+    function workHitsTruck() {
+      bucket.updateWorldMatrix(true, false);
+      for (const p of _samplePts) {
+        _ctip.copy(p); bucket.localToWorld(_ctip);
+        if (pointInTruckSolid(_ctip)) return true;
+      }
+      // アーム先端も念のため
+      bucketTip.getWorldPosition(_ctip);
+      return pointInTruckSolid(_ctip);
+    }
+
     function updateJoints(dt) {
-      const prevBoom = joints.boom.value, prevArm = joints.arm.value;
+      const prevSwing = joints.swing.value, prevBoom = joints.boom.value,
+            prevArm = joints.arm.value, prevBucket = joints.bucket.value;
 
       // 旋回（左レバー左右）: 左に倒す(x<0)→反時計回り(+Y)
       joints.swing.value -= ax('lx') * joints.swing.speed * dt;
@@ -1410,6 +1434,15 @@
         pen = tipPenetration();
       }
       lastPen = pen;
+
+      // 作業機がトラックに衝突したら、このフレームの関節動作を取り消して停止＋振動。
+      if (workHitsTruck()) {
+        joints.swing.value = prevSwing; joints.boom.value = prevBoom;
+        joints.arm.value = prevArm; joints.bucket.value = prevBucket;
+        applyJoints();
+        camShake = Math.max(camShake, 0.16);
+        if (navigator.vibrate) { vibAccum += dt; if (vibAccum > 0.2) { vibAccum = 0; navigator.vibrate(30); } }
+      }
     }
 
     // =========================================================
